@@ -79,7 +79,7 @@ gcloud auth application-default login
 ```
 *(The app expects a Firestore project configured. It will read and write transactions directly to the `cfo_state/wallet` document).*
 
-### Step 4: Boot the Server
+### Step 4: Boot the Server (Local Development)
 Thanks to `uv run`, you do not need to activate virtual environments manually. Simply run:
 ```bash
 uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
@@ -87,21 +87,30 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ---
 
+## ☁️ Production Deployment
+
+The application is deployed live in production:
+* **Production Domain**: [https://cfo.sam18.xyz](https://cfo.sam18.xyz)
+* **Hosting Region**: `us-central1`
+* **Infrastructure**: Continuous state synchronization with serverless Google Cloud Firestore.
+
+---
+
 ## 📱 iPhone Action Button Integration
 
-Map this server directly to your iPhone Action Button in under 2 minutes:
+Map your live production server directly to your iPhone Action Button so it works **anywhere in the world** (no local Wi-Fi pairing required):
 
-1. **Locate your Mac's Local IP** (e.g. `192.168.1.72`) by running `ipconfig getifaddr en0` in your terminal.
-2. Open the **Apple Shortcuts** app on your iPhone and create a new Shortcut named **"Pitch to CFO"**.
-3. Replicate the following layout:
+1. Open the **Apple Shortcuts** app on your iPhone and create a new Shortcut named **"Pitch to CFO"**.
+2. Replicate the following layout:
 
 | Shortcut Block | Details & Action Config |
 | :--- | :--- |
 | **Ask for Input** | Prompt: *"What do you want to buy?"* |
-| **Get Contents of URL** | URL: `http://<YOUR_MAC_IP>:8000/cfo-check`<br>Method: **POST**<br>Headers: `Content-Type: application/json`<br>Request Body: **JSON**<br>Field: `expense_text` ➔ `Provided Input` |
+| **Get Contents of URL** | URL: `https://cfo.sam18.xyz/cfo-check`<br>Method: **POST**<br>Headers: `Content-Type: application/json`<br>Request Body: **JSON**<br>Field: `expense_text` ➔ `Provided Input` |
 | **Get Dictionary from** | Input: `Contents of URL` |
 | **Get Value for Key** | Key: `message` in `Dictionary` |
 | **Speak** | Input: `Dictionary Value` |
 
-4. Go to **Settings > Action Button** on your phone, slide to **Shortcut**, and assign **"Pitch to CFO"**.
-5. Press the physical Action Button, pitch your expense, and let your M4 Mac roar through your speakers!
+3. Go to **Settings > Action Button** on your phone, slide to **Shortcut**, and assign **"Pitch to CFO"**.
+4. Press the physical Action Button anywhere in the world, pitch your expense, and let your AI CFO guard your money!
+
