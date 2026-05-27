@@ -1,0 +1,26 @@
+{
+  "current_balance": 5000,
+  "transactions": [
+    {
+      "timestamp": "2026-05-28T00:59:45.482724",
+      "expense_text": "I want to buy a Coffee from StarBucks for 500",
+      "approved_amount": 0,
+      "message": "A \u20b9500 coffee? That's 10% of your entire remaining net worth, you absolute imbecile! What's the ROI on overpriced bean water? A fleeting sugar rush and crippling regret? Absolutely not. Go make yourself some chai at home, you pauper.",
+      "remaining_balance": 5000
+    },
+    {
+      "timestamp": "2026-05-28T00:57:40.903996",
+      "expense_text": "I am standing at a cafe and want to buy a \u20b9400 cold coffee.",
+      "approved_amount": 0,
+      "message": "Are you out of your mind? A \u20b9400 cold coffee? That's 8% of your *entire remaining net worth* for a sugary drink that will be gone in 10 minutes. At this rate, you'll be asking me to approve buying air next week. Absolutely denied. Go drink some tap water, you entitled rookie.",
+      "remaining_balance": 5000
+    },
+    {
+      "timestamp": "2026-05-27T23:48:08.069337",
+      "expense_text": "I am standing at a cafe and want to buy a \u20b9400 cold coffee.",
+      "approved_amount": 0,
+      "message": "Are you absolutely delusional? A \u20b9400 cold coffee? That's 8% of your entire remaining net worth for a glorified sugar hit that will last 15 minutes. The ROI on that is precisely nothing, unless 'momentary satisfaction of your sweet tooth' is now a valid investment strategy for a future AI engineer. Get real, and put that cash towards something that won't evaporate with your first sip.",
+      "remaining_balance": 5000
+    }
+  ]
+}
