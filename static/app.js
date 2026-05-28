@@ -92,8 +92,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const budgetVal = Math.max(Math.round(currentBalance / daysLeft), 0);
             dailyBudgetEl.textContent = `₹${formatCurrency(budgetVal)}/day`;
             
-            // Burns Count is number of rejected transactions (approved_amount === 0)
-            const totalBurns = transactions.filter(t => t.approved_amount === 0).length;
+            // Burns Count is number of rejected transactions
+            const totalBurns = transactions.filter(t => t.action_taken === "REJECT_INTENT" || (!t.action_taken && t.approved_amount === 0)).length;
             totalBurnsCountEl.textContent = totalBurns;
 
             // Animate or set balance
@@ -128,9 +128,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
         logsFeed.innerHTML = "";
         transactions.forEach((tx) => {
-            const isApproved = tx.approved_amount > 0;
+            const action = tx.action_taken || (tx.approved_amount > 0 ? "APPROVE_INTENT" : "REJECT_INTENT");
+            
+            let cardClass = "";
+            let chipClass = "";
+            let chipText = "";
+
+            if (action === "ADD_FUNDS") {
+                cardClass = "approved-card";
+                chipClass = "chip-approved";
+                chipText = `+₹${formatCurrency(tx.funds_added)} Added`;
+            } else if (action === "RETROACTIVE_DEDUCTION") {
+                cardClass = "rejected-card"; 
+                chipClass = "chip-rejected";
+                chipText = `-₹${formatCurrency(tx.approved_amount)} Deducted`;
+            } else if (action === "APPROVE_INTENT") {
+                cardClass = "approved-card";
+                chipClass = "chip-approved";
+                chipText = `-₹${formatCurrency(tx.approved_amount)} Approved`;
+            } else {
+                cardClass = "rejected-card";
+                chipClass = "chip-rejected";
+                chipText = `Rejected (₹0)`;
+            }
+
             const logCard = document.createElement("div");
-            logCard.className = `log-card ${isApproved ? 'approved-card' : 'rejected-card'}`;
+            logCard.className = `log-card ${cardClass}`;
             
             logCard.innerHTML = `
                 <div class="log-header">
@@ -138,8 +161,8 @@ document.addEventListener("DOMContentLoaded", () => {
                         <span class="log-time">${formatTime(tx.timestamp)}</span>
                         <p class="log-pitch">"${escapeHtml(tx.expense_text)}"</p>
                     </div>
-                    <span class="decision-chip ${isApproved ? 'chip-approved' : 'chip-rejected'}">
-                        ${isApproved ? `+₹${tx.approved_amount} Approved` : 'Rejected (₹0)'}
+                    <span class="decision-chip ${chipClass}">
+                        ${chipText}
                     </span>
                 </div>
                 <div class="cfo-roast-wrapper">
@@ -186,14 +209,18 @@ document.addEventListener("DOMContentLoaded", () => {
         const chartUsableHeight = svgHeight - paddingTop - paddingBottom;
 
         // Generate data points
-        // Start from ₹5,000 initial, decay downwards based on transaction chronological deductions
+        // Start from ₹5,000 initial, adjust based on transaction chronological actions
         let balancePoints = [5000];
         
         // Reverse transaction history to get chronological order (oldest first)
         const chronTx = [...transactions].reverse();
         let runningBalance = 5000;
         chronTx.forEach(tx => {
-            if (tx.approved_amount > 0) {
+            const action = tx.action_taken || (tx.approved_amount > 0 ? "APPROVE_INTENT" : "REJECT_INTENT");
+            if (action === "ADD_FUNDS" && tx.funds_added > 0) {
+                runningBalance += tx.funds_added;
+                balancePoints.push(runningBalance);
+            } else if ((action === "APPROVE_INTENT" || action === "RETROACTIVE_DEDUCTION") && tx.approved_amount > 0) {
                 runningBalance -= tx.approved_amount;
                 balancePoints.push(runningBalance);
             }

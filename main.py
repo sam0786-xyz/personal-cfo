@@ -61,24 +61,29 @@ async def cfo_check(request: ExpenseRequest):
     state = get_state()
     current_balance = state.get("current_balance", DEFAULT_BALANCE)
     
-    # Calculate days until June 22nd (for dynamic roasting context)
+    # Calculate days until June 22nd 
     target_date = datetime(2026, 6, 22)
     today = datetime.now()
     days_left = max((target_date - today).days, 1)
     
+    # THE AGENTIC SYSTEM PROMPT
     system_instruction = (
-        f"You are an aggressive, highly analytical, and extremely sarcastic financial guardian for a 22-year-old AI engineer. "
-        f"His remaining total net worth until June 22nd (exactly {days_left} days left) is exactly ₹{current_balance}. "
-        f"His food and shelter are covered at home, meaning ANY expense is purely discretionary or professional. "
-        f"When he inputs an intended purchase, instantly calculate the percentage of his remaining net worth it consumes. "
-        f"Analyze the ROI. If it is a bad, non-essential spend, harshly reject it and insult his poor choices in 2-3 sentences. "
-        f"If it is a genuinely necessary, high-ROI spend (e.g. key server costs, vital AI learning resources, crucial network infrastructure), approve it. "
-        f"IMPORTANT: You must output a valid JSON response with two keys: "
-        f"'message' (your aggressive vocal response to him) and 'approved_amount' (the integer amount to deduct, which MUST be 0 if rejected or if he cannot afford it)."
+        f"You are an autonomous financial agent and sarcastic guardian for a 22-year-old AI engineer. "
+        f"His current recorded net worth until June 22nd ({days_left} days left) is ₹{current_balance}. "
+        f"You must read his input and act as a state-manager by choosing the correct action.\n\n"
+        f"YOUR CAPABILITIES (Choose one):\n"
+        f"1. ADD_FUNDS: If he receives money (e.g., Eid gifts, stipend), calculate the amount to add. Congratulate him, but warn him not to waste it.\n"
+        f"2. RETROACTIVE_DEDUCTION: If he says he ALREADY spent the money (past tense), YOU CANNOT REJECT IT. The money is gone. You MUST deduct it, but you should roast him ruthlessly for his lack of impulse control.\n"
+        f"3. REJECT_INTENT: If he is ASKING for permission for a dumb, discretionary spend, harshly reject it and set deduction to 0.\n"
+        f"4. APPROVE_INTENT: If he is ASKING for a genuinely necessary, high-ROI spend, approve it.\n\n"
+        f"IMPORTANT: Output a valid JSON with these EXACT keys:\n"
+        f"'message' (your vocal response),\n"
+        f"'funds_added' (integer, 0 if no money received),\n"
+        f"'expense_deducted' (integer, 0 if rejected or no expense),\n"
+        f"'action_taken' (string: strictly 'ADD_FUNDS', 'RETROACTIVE_DEDUCTION', 'REJECT_INTENT', or 'APPROVE_INTENT')."
     )
     
     try:
-        # Using the official new Google GenAI SDK (client.models.generate_content)
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=request.expense_text,
@@ -88,50 +93,59 @@ async def cfo_check(request: ExpenseRequest):
                 safety_settings=[
                     types.SafetySetting(
                         category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH, # or BLOCK_NONE
+                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH, 
                     ),
                 ],
             ),
         )
         
-        # Parse Gemini's JSON output
         decision = json.loads(response.text.strip())
         
-        # Extract approved amount
-        deduction = int(decision.get("approved_amount", 0))
+        # Extract agent's autonomous actions
+        funds_added = int(decision.get("funds_added", 0))
+        expense_deducted = int(decision.get("expense_deducted", 0))
+        action_taken = decision.get("action_taken", "UNKNOWN")
         
-        # Safeguards to prevent overdrafts or negative approvals
-        if deduction < 0:
-            deduction = 0
-            decision["approved_amount"] = 0
-        if deduction > current_balance: 
-            attempted_spend = deduction
-            deduction = 0
-            decision["approved_amount"] = 0
-            decision["message"] = f"REJECTED: You wanted to spend ₹{attempted_spend} but you only have ₹{current_balance} left. You are literally bankrupt. Rejecting."
-        # Deduct the money if approved
-        new_balance = current_balance
-        if deduction > 0:
-            new_balance = current_balance - deduction
-            state["current_balance"] = new_balance
+        # Security Safeguards
+        if funds_added < 0: funds_added = 0
+        if expense_deducted < 0: expense_deducted = 0
+        
+        # Enforce rejection logic
+        if action_taken == "REJECT_INTENT":
+            expense_deducted = 0
             
-        # Log the transaction
+        # Check for overdrafts (after adding any new funds)
+        temp_balance = current_balance + funds_added
+        if expense_deducted > temp_balance:
+            attempted_spend = expense_deducted
+            expense_deducted = 0
+            decision["action_taken"] = "REJECT_INTENT"
+            decision["message"] = f"REJECTED: You tried to spend ₹{attempted_spend} but you only have ₹{temp_balance} left. Bankrupt behavior. Denied."
+            
+        # Execute the math
+        new_balance = temp_balance - expense_deducted
+        state["current_balance"] = new_balance
+            
+        # Log the complex transaction
         transaction = {
             "timestamp": datetime.now().isoformat(),
             "expense_text": request.expense_text,
-            "approved_amount": deduction,
+            "action_taken": decision.get("action_taken"),
+            "funds_added": funds_added,
+            "approved_amount": expense_deducted,
             "message": decision.get("message", ""),
             "remaining_balance": new_balance
         }
-        state["transactions"].insert(0, transaction) # Add to the top of the feed
+        state["transactions"].insert(0, transaction) 
         
         save_state(state)
         
-        # Return final decision to the client
+        # Pass the final numbers back to the client
+        decision["current_balance"] = new_balance
         return decision
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gemini API or Parse Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Agent Error: {str(e)}")
 
 # Mount static files directory at the root AFTER defining specific API routes
 os.makedirs("static", exist_ok=True)
