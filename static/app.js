@@ -4,6 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const daysLeftTextEl = document.getElementById("daysLeftText");
     const dailyBudgetEl = document.getElementById("dailyBudget");
     const totalBurnsCountEl = document.getElementById("totalBurnsCount");
+    const totalOwedAmountEl = document.getElementById("totalOwedAmount");
     const runwayChartEl = document.getElementById("runwayChart");
     const expenseForm = document.getElementById("expenseForm");
     const expenseInput = document.getElementById("expenseInput");
@@ -17,6 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // CFO State Variables
     let currentBalance = 5000;
     let transactions = [];
+    let owedByState = {};
     
     // Config Target Date
     const TARGET_DATE = new Date("2026-06-22T00:00:00");
@@ -84,6 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const prevBalance = currentBalance;
             currentBalance = state.current_balance;
             transactions = state.transactions;
+            owedByState = state.owed_by || {};
 
             // Render stats
             const daysLeft = getDaysRemaining();
@@ -95,6 +98,12 @@ document.addEventListener("DOMContentLoaded", () => {
             // Burns Count is number of rejected transactions
             const totalBurns = transactions.filter(t => t.action_taken === "REJECT_INTENT" || (!t.action_taken && t.approved_amount === 0)).length;
             totalBurnsCountEl.textContent = totalBurns;
+
+            // Calculate total owed
+            const totalOwed = Object.values(owedByState).reduce((acc, val) => acc + val, 0);
+            if (totalOwedAmountEl) {
+                totalOwedAmountEl.textContent = `₹${formatCurrency(totalOwed)}`;
+            }
 
             // Animate or set balance
             if (animate) {
@@ -127,6 +136,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         logsFeed.innerHTML = "";
+        
+        // Calculate deltas by looking at previous balances for ADD_FUNDS and DEBT_COLLECTED
+        transactions.forEach((tx, idx) => {
+            let prevBalance = 5000;
+            if (idx < transactions.length - 1) {
+                prevBalance = transactions[idx + 1].remaining_balance;
+            }
+            tx._delta = tx.remaining_balance - prevBalance;
+        });
+
         transactions.forEach((tx) => {
             const action = tx.action_taken || (tx.approved_amount > 0 ? "APPROVE_INTENT" : "REJECT_INTENT");
             
@@ -137,7 +156,23 @@ document.addEventListener("DOMContentLoaded", () => {
             if (action === "ADD_FUNDS") {
                 cardClass = "approved-card";
                 chipClass = "chip-approved";
-                chipText = `+₹${formatCurrency(tx.funds_added)} Added`;
+                chipText = `+₹${formatCurrency(tx._delta > 0 ? tx._delta : 0)} Added`;
+            } else if (action === "DEBT_COLLECTED") {
+                cardClass = "approved-card";
+                chipClass = "chip-approved";
+                chipText = `+₹${formatCurrency(tx._delta > 0 ? tx._delta : 0)} Collected`;
+            } else if (action === "LEND_MONEY") {
+                cardClass = "rejected-card";
+                chipClass = "chip-rejected";
+                chipText = `-₹${formatCurrency(tx.approved_amount)} Lent`;
+            } else if (action === "SET_EXACT_BALANCE") {
+                cardClass = "approved-card";
+                chipClass = "chip-approved";
+                chipText = `Balance Set`;
+            } else if (action === "QUERY_STATUS") {
+                cardClass = "approved-card";
+                chipClass = "chip-approved";
+                chipText = `Query / Status`;
             } else if (action === "RETROACTIVE_DEDUCTION") {
                 cardClass = "rejected-card"; 
                 chipClass = "chip-rejected";
@@ -214,16 +249,8 @@ document.addEventListener("DOMContentLoaded", () => {
         
         // Reverse transaction history to get chronological order (oldest first)
         const chronTx = [...transactions].reverse();
-        let runningBalance = 5000;
         chronTx.forEach(tx => {
-            const action = tx.action_taken || (tx.approved_amount > 0 ? "APPROVE_INTENT" : "REJECT_INTENT");
-            if (action === "ADD_FUNDS" && tx.funds_added > 0) {
-                runningBalance += tx.funds_added;
-                balancePoints.push(runningBalance);
-            } else if ((action === "APPROVE_INTENT" || action === "RETROACTIVE_DEDUCTION") && tx.approved_amount > 0) {
-                runningBalance -= tx.approved_amount;
-                balancePoints.push(runningBalance);
-            }
+            balancePoints.push(tx.remaining_balance);
         });
 
         // Current balance should be the final point
