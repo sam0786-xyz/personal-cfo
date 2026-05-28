@@ -83,6 +83,11 @@
                     </div>
                 </div>
 
+                <!-- Per-person debt breakdown -->
+                <div id="owedBreakdown" class="owed-breakdown">
+                    <span class="owed-empty">No outstanding debts</span>
+                </div>
+
                 <!-- Runway Chart visualization -->
                 <div class="chart-container">
                     <svg id="runwayChart" viewBox="0 0 600 80" preserveAspectRatio="none">
@@ -105,7 +110,7 @@
                     </svg>
                     <h2>Financial Expense Sandbox</h2>
                 </div>
-                <p class="section-desc">Pitch your intended purchase. The CFO AI will analyze the ROI and either deduct the amount or mock your existence.</p>
+                <p class="section-desc">Talk to your AI CFO — pitch expenses, report spending, lend money, collect debts, or just check your status. The agent decides what to do.</p>
                 
                 <form id="expenseForm" class="sandbox-form">
                     <div class="textarea-wrapper">
@@ -124,12 +129,14 @@
 
                 <!-- Custom template shortcuts to help user test -->
                 <div class="shortcuts-group">
-                    <span class="shortcuts-label">Test Templates:</span>
+                    <span class="shortcuts-label">Quick Templates:</span>
                     <div class="shortcuts-list">
-                        <button class="shortcut-tag" data-value="I want to buy a ₹350 cold brew coffee to stay awake for coding.">☕ Cafe Coffee</button>
+                        <button class="shortcut-tag" data-value="I already spent ₹350 on a cold brew coffee to stay awake for coding.">☕ Cafe Coffee</button>
                         <button class="shortcut-tag" data-value="I need to pay ₹1200 for a server instance hosting our active AI agent.">🖥️ Server Costs</button>
-                        <button class="shortcut-tag" data-value="I want to order a ₹2500 leather wallet because it looks highly premium.">💼 Premium Wallet</button>
-                        <button class="shortcut-tag" data-value="I need ₹800 to buy an algorithmic coding book.">📚 Tech Book</button>
+                        <button class="shortcut-tag" data-value="I gave ₹500 to Faizan for lunch, he’ll pay me back.">🤝 Lend Money</button>
+                        <button class="shortcut-tag" data-value="Faizan returned the ₹500 he owed me.">💸 Collect Debt</button>
+                        <button class="shortcut-tag" data-value="My balance is now ₹4000 after some offline expenses.">⚡ Set Balance</button>
+                        <button class="shortcut-tag" data-value="Who owes me money and what’s my current balance?">📊 Status Check</button>
                     </div>
                 </div>
             </section>

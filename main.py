@@ -33,7 +33,6 @@ def get_state():
     doc = doc_ref.get()
     if doc.exists:
         state = doc.to_dict()
-        # Initialize owed_by ledger if it doesn't exist from older versions
         if "owed_by" not in state:
             state["owed_by"] = {}
         return state
@@ -45,7 +44,6 @@ def save_state(state):
 class ExpenseRequest(BaseModel):
     expense_text: str
 
-# Define the exact JSON schema the Agent MUST return
 class AgentDecision(BaseModel):
     message: str
     action_taken: str
@@ -70,39 +68,42 @@ async def cfo_check(request: ExpenseRequest):
     current_balance = state.get("current_balance", DEFAULT_BALANCE)
     owed_by = state.get("owed_by", {})
     
+    # Clean up any zero-balance debts from previous runs
+    owed_by = {k: v for k, v in owed_by.items() if v > 0}
+    
     target_date = datetime(2026, 6, 22)
     today = datetime.now()
     days_left = max((target_date - today).days, 1)
     
-    # Format current debts so the agent can read them
-    debt_string = ", ".join([f"{name} owes ₹{amt}" for name, amt in owed_by.items() if amt > 0])
+    debt_string = ", ".join([f"{name} owes ₹{amt}" for name, amt in owed_by.items()])
     if not debt_string: debt_string = "Nobody owes him money."
     
-    # THE UPGRADED STATE-MACHINE PROMPT
+    # THE BULLETPROOF AGENT PROMPT
     system_instruction = (
         f"You are a lightning-fast autonomous financial agent for a 22-year-old AI engineer.\n"
         f"CURRENT STATE:\n- Net worth until June 22nd ({days_left} days left): ₹{current_balance}\n"
         f"- Debts (Money owed to him): {debt_string}\n\n"
+        f"CRITICAL RULE: DO NOT DO ANY MATH. DO NOT ADD OR SUBTRACT. Only extract the EXACT raw numbers stated by the user.\n"
         f"YOUR CAPABILITIES:\n"
-        f"1. SET_EXACT_BALANCE: If he says his money 'became' or 'is now' a specific amount, set new_target_balance.\n"
-        f"2. ADD_FUNDS: If he receives extra money (e.g., stipends).\n"
-        f"3. RETROACTIVE_DEDUCTION: If he ALREADY spent money. You MUST deduct it, but roast him.\n"
-        f"4. REJECT_INTENT: If he ASKS to spend on something stupid. Reject it.\n"
-        f"5. APPROVE_INTENT: If he ASKS to spend on something necessary.\n"
-        f"6. LEND_MONEY: If he gives money to someone, deduct it and set person_name.\n"
-        f"7. DEBT_COLLECTED: If someone pays him back, add funds and set person_name to reduce their debt.\n"
-        f"8. QUERY_STATUS: If he asks 'Who owes me money?' or 'What is my balance?', answer him based on the CURRENT STATE above. Do not deduct anything.\n\n"
-        f"IMPORTANT: Output your response following the schema. If an integer is not needed, output 0. If new_target_balance is not used, output -1. If no person is involved, leave person_name empty."
+        f"1. ADD_FUNDS: If he explicitly receives extra money, extract the exact amount into 'funds_added'.\n"
+        f"2. SET_EXACT_BALANCE: ONLY if he explicitly states his total balance 'became' or 'is now' a specific amount, put that amount in 'new_target_balance'.\n"
+        f"3. RETROACTIVE_DEDUCTION: If he ALREADY spent money, extract the amount into 'expense_deducted' and roast him.\n"
+        f"4. REJECT_INTENT: If he ASKS to spend on something stupid, set expense_deducted to 0 and reject it.\n"
+        f"5. APPROVE_INTENT: If he ASKS to spend on goods/services for himself, extract amount into 'expense_deducted'.\n"
+        f"6. LEND_MONEY: CRITICAL - If the transaction involves giving/lending money TO A SPECIFIC PERSON (e.g., 'Faizan', 'my brother'), you MUST choose LEND_MONEY, not Approve Intent. Extract amount into 'expense_deducted' and their name into 'person_name'.\n"
+        f"7. DEBT_COLLECTED: CRITICAL - If a person returns/pays back money to him, choose DEBT_COLLECTED. Extract amount into 'funds_added' and their name into 'person_name'.\n"
+        f"8. QUERY_STATUS: If he asks for his balance or debts, output 0 for all amounts.\n\n"
+        f"IMPORTANT: Output your response following the schema. If no person is involved, leave person_name empty."
     )
     
     try:
         response = client.models.generate_content(
-            model='gemini-3.1-flash-lite',
+            model='gemini-3.5-flash', 
             contents=request.expense_text,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 response_mime_type="application/json",
-                response_schema=AgentDecision, # Native Tooling for massive speed increase
+                response_schema=AgentDecision, 
                 safety_settings=[
                     types.SafetySetting(
                         category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -119,30 +120,41 @@ async def cfo_check(request: ExpenseRequest):
         expense = int(decision.get("expense_deducted", 0))
         funds = int(decision.get("funds_added", 0))
         target = int(decision.get("new_target_balance", -1))
-        person = decision.get("person_name", "").strip()
         
+        # SAFE PERSON EXTRACTION (Prevents null crashes and capitalizes names)
+        person_val = decision.get("person_name")
+        person = str(person_val).strip().title() if person_val else ""
+        
+        # Sanitize negative values
         if expense < 0: expense = 0
         if funds < 0: funds = 0
 
-        # 1. Handle Target Balances (Overrides current balance)
-        if target != -1:
+        # MATHEMATICAL CORRECTION
+        if target != -1 and target > 0:
+            implied_funds = target - current_balance
+            if implied_funds > 0:
+                funds = implied_funds
             current_balance = target
-            
-        # 2. Handle standard income
-        current_balance += funds
+        else:
+            current_balance += funds
         
-        # 3. Handle Lending & Collecting
-        if action == "LEND_MONEY" and person and expense > 0:
-            owed_by[person] = owed_by.get(person, 0) + expense
+        # HANDLE LENDING & COLLECTING WITH FALLBACKS
+        if action == "LEND_MONEY" and expense > 0:
+            actual_person = person if person else "Someone"
+            owed_by[actual_person] = owed_by.get(actual_person, 0) + expense
             
-        if action == "DEBT_COLLECTED" and person and funds > 0:
-            owed_by[person] = max(0, owed_by.get(person, 0) - funds)
+        if action == "DEBT_COLLECTED" and funds > 0:
+            actual_person = person if person else "Someone"
+            owed_by[actual_person] = max(0, owed_by.get(actual_person, 0) - funds)
             
-        # 4. Handle Rejections and Queries (Zero out expense)
+        # Clean up debts that hit 0
+        owed_by = {k: v for k, v in owed_by.items() if v > 0}
+            
+        # Handle Rejections and Queries (Zero out expense)
         if action in ["REJECT_INTENT", "QUERY_STATUS"]:
             expense = 0
             
-        # 5. Overdraft Protection
+        # Overdraft Protection
         if expense > current_balance and action not in ["QUERY_STATUS"]:
             attempted_spend = expense
             expense = 0
@@ -154,6 +166,10 @@ async def cfo_check(request: ExpenseRequest):
         state["current_balance"] = new_balance
         state["owed_by"] = owed_by
             
+        # Update the decision output so the frontend sees the corrected math
+        decision["expense_deducted"] = expense
+        decision["funds_added"] = funds
+            
         transaction = {
             "timestamp": datetime.now().isoformat(),
             "expense_text": request.expense_text,
@@ -161,7 +177,7 @@ async def cfo_check(request: ExpenseRequest):
             "approved_amount": expense,
             "message": decision.get("message", ""),
             "remaining_balance": new_balance,
-            "owed_by_snapshot": dict(owed_by) # Save history of who owed what at this moment
+            "owed_by_snapshot": dict(owed_by) 
         }
         state["transactions"].insert(0, transaction) 
         

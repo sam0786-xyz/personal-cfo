@@ -762,6 +762,107 @@ body {
     letter-spacing: 0.5px;
 }
 
+/* Owed-by Breakdown */
+.owed-breakdown {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-panel-border);
+    z-index: 1;
+}
+
+.owed-person {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.7rem;
+    border-radius: 50px;
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    color: var(--color-emerald);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+.owed-empty {
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+    font-style: italic;
+}
+
+/* Lend Card (Amber toned) */
+.log-card.lend-card {
+    border-color: rgba(245, 158, 11, 0.15);
+}
+
+.chip-lend {
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: hsl(38, 92%, 50%);
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.1);
+}
+
+.log-card.lend-card .cfo-roast-wrapper {
+    border-left-color: hsl(38, 92%, 50%);
+}
+
+.log-card.lend-card .cfo-avatar {
+    background: hsl(38, 92%, 50%);
+}
+
+/* Query Card (Blue/Indigo toned) */
+.log-card.query-card {
+    border-color: rgba(124, 77, 255, 0.15);
+}
+
+.chip-query {
+    background: rgba(124, 77, 255, 0.12);
+    border: 1px solid rgba(124, 77, 255, 0.3);
+    color: var(--color-indigo);
+    box-shadow: 0 0 8px rgba(124, 77, 255, 0.1);
+}
+
+.log-card.query-card .cfo-roast-wrapper {
+    border-left-color: var(--color-indigo);
+}
+
+.log-card.query-card .cfo-avatar {
+    background: var(--color-indigo);
+}
+
+/* Person Tag in Log Cards */
+.person-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--color-panel-border);
+    color: var(--color-text-secondary);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: capitalize;
+    letter-spacing: 0.3px;
+}
+
+/* Log Chips Container */
+.log-chips {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+
+/* Balance tag at bottom of log card */
+.log-balance-tag {
+    font-size: 0.72rem;
+    color: var(--color-text-muted);
+    text-align: right;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+
 /* Responsive Scaling Rules */
 @media (max-width: 900px) {
     .dashboard-grid {

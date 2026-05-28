@@ -29,11 +29,12 @@ document.addEventListener("DOMContentLoaded", () => {
         { title: "Cross-referencing ROI metrics...", subtitle: "Evaluating standard young-adult behavior" },
         { title: "Harshly calculating runway decay...", subtitle: "Analyzing percentage of total net worth" },
         { title: "Consulting financial models...", subtitle: "Translating deep disappointment into sarcasm" },
-        { title: "Preparing vocal burn...", subtitle: "Deduction validation in progress" }
+        { title: "Preparing vocal burn...", subtitle: "Deduction validation in progress" },
+        { title: "Auditing lending history...", subtitle: "Checking who still owes you money" }
     ];
     let loaderInterval = null;
 
-    // Helper: Format large numbers with comma
+    // Helper: Format large numbers with comma (Indian locale)
     const formatCurrency = (amount) => {
         return Number(amount).toLocaleString('en-IN');
     };
@@ -50,6 +51,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const formatTime = (isoString) => {
         const date = new Date(isoString);
         return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) + ' - ' + date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+    };
+
+    // Escape HTML helper to prevent XSS injection — guards against null/undefined
+    const escapeHtml = (text) => {
+        if (text == null) return '';
+        const str = String(text);
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return str.replace(/[&<>"']/g, function(m) { return map[m]; });
     };
 
     // Count-Up Animation for Balance Display
@@ -76,7 +91,7 @@ document.addEventListener("DOMContentLoaded", () => {
         requestAnimationFrame(update);
     };
 
-    // Fetch and sync application state
+    // Fetch and sync application state from backend
     const fetchState = async (animate = false) => {
         try {
             const res = await fetch("/cfo-state");
@@ -85,7 +100,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const state = await res.json();
             const prevBalance = currentBalance;
             currentBalance = state.current_balance;
-            transactions = state.transactions;
+            transactions = state.transactions || [];
             owedByState = state.owed_by || {};
 
             // Render stats
@@ -95,11 +110,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const budgetVal = Math.max(Math.round(currentBalance / daysLeft), 0);
             dailyBudgetEl.textContent = `₹${formatCurrency(budgetVal)}/day`;
             
-            // Burns Count is number of rejected transactions
-            const totalBurns = transactions.filter(t => t.action_taken === "REJECT_INTENT" || (!t.action_taken && t.approved_amount === 0)).length;
+            // Burns Count: REJECT_INTENT actions
+            const totalBurns = transactions.filter(t => t.action_taken === "REJECT_INTENT").length;
             totalBurnsCountEl.textContent = totalBurns;
 
-            // Calculate total owed
+            // Calculate total owed from the live owed_by ledger
             const totalOwed = Object.values(owedByState).reduce((acc, val) => acc + val, 0);
             if (totalOwedAmountEl) {
                 totalOwedAmountEl.textContent = `₹${formatCurrency(totalOwed)}`;
@@ -112,12 +127,133 @@ document.addEventListener("DOMContentLoaded", () => {
                 balanceAmountEl.textContent = formatCurrency(currentBalance);
             }
 
+            renderOwedBreakdown();
             renderLogs();
             drawRunwayChart();
 
         } catch (err) {
             console.error("Error synchronizing state:", err);
         }
+    };
+
+    // Render per-person debt breakdown under the "Money Owed" stat
+    const renderOwedBreakdown = () => {
+        const container = document.getElementById("owedBreakdown");
+        if (!container) return;
+
+        const entries = Object.entries(owedByState).filter(([, v]) => v > 0);
+        if (entries.length === 0) {
+            container.innerHTML = '<span class="owed-empty">No outstanding debts</span>';
+            return;
+        }
+
+        container.innerHTML = entries.map(([name, amt]) => 
+            `<span class="owed-person">${escapeHtml(name)}: ₹${formatCurrency(amt)}</span>`
+        ).join('');
+    };
+
+    // ============================================================
+    // ACTION → VISUAL MAPPING (matches main.py's 8 action types)
+    // ============================================================
+    //
+    // main.py stores per transaction:
+    //   { timestamp, expense_text, action_taken, approved_amount, message, remaining_balance, owed_by_snapshot }
+    //
+    // "approved_amount" is always the EXPENSE deducted (0 for income/query actions).
+    // There is NO "funds_added" field in the stored transaction.
+    // To compute income amounts, we diff remaining_balance with the previous transaction.
+    //
+    // Action mapping:
+    //   ADD_FUNDS          → income, approved_amount=0, balance went UP
+    //   DEBT_COLLECTED     → income, approved_amount=0, balance went UP, person in owed_by_snapshot
+    //   SET_EXACT_BALANCE  → override, approved_amount=0, balance changed
+    //   LEND_MONEY         → deduction, approved_amount=X, person in owed_by_snapshot
+    //   RETROACTIVE_DEDUCTION → deduction, approved_amount=X
+    //   APPROVE_INTENT     → deduction, approved_amount=X
+    //   REJECT_INTENT      → no change, approved_amount=0
+    //   QUERY_STATUS        → no change, approved_amount=0
+
+    const getActionDisplay = (action, tx, balanceDelta) => {
+        switch (action) {
+            case "ADD_FUNDS":
+                return {
+                    cardClass: "approved-card",
+                    chipClass: "chip-approved",
+                    chipText: `+₹${formatCurrency(balanceDelta > 0 ? balanceDelta : 0)} Added`,
+                    icon: "💰"
+                };
+            case "DEBT_COLLECTED": {
+                const person = extractPerson(tx);
+                return {
+                    cardClass: "approved-card",
+                    chipClass: "chip-approved",
+                    chipText: `+₹${formatCurrency(balanceDelta > 0 ? balanceDelta : 0)} Collected`,
+                    icon: "🤝",
+                    personLabel: person ? `from ${person}` : ""
+                };
+            }
+            case "SET_EXACT_BALANCE":
+                return {
+                    cardClass: "approved-card",
+                    chipClass: "chip-approved",
+                    chipText: `Balance → ₹${formatCurrency(tx.remaining_balance)}`,
+                    icon: "⚡"
+                };
+            case "LEND_MONEY": {
+                const person = extractPerson(tx);
+                return {
+                    cardClass: "lend-card",
+                    chipClass: "chip-lend",
+                    chipText: `-₹${formatCurrency(tx.approved_amount)} Lent`,
+                    icon: "🤲",
+                    personLabel: person ? `to ${person}` : ""
+                };
+            }
+            case "RETROACTIVE_DEDUCTION":
+                return {
+                    cardClass: "rejected-card",
+                    chipClass: "chip-rejected",
+                    chipText: `-₹${formatCurrency(tx.approved_amount)} Deducted`,
+                    icon: "🔥"
+                };
+            case "APPROVE_INTENT":
+                return {
+                    cardClass: "approved-card",
+                    chipClass: "chip-approved",
+                    chipText: `-₹${formatCurrency(tx.approved_amount)} Approved`,
+                    icon: "✅"
+                };
+            case "REJECT_INTENT":
+                return {
+                    cardClass: "rejected-card",
+                    chipClass: "chip-rejected",
+                    chipText: "Rejected (₹0)",
+                    icon: "🚫"
+                };
+            case "QUERY_STATUS":
+                return {
+                    cardClass: "query-card",
+                    chipClass: "chip-query",
+                    chipText: "Status Query",
+                    icon: "📊"
+                };
+            default:
+                return {
+                    cardClass: "rejected-card",
+                    chipClass: "chip-rejected",
+                    chipText: tx.approved_amount > 0 ? `-₹${formatCurrency(tx.approved_amount)}` : "Unknown",
+                    icon: "❓"
+                };
+        }
+    };
+
+    // Extract person name from owed_by_snapshot changes
+    const extractPerson = (tx) => {
+        if (!tx.owed_by_snapshot) return "";
+        const names = Object.keys(tx.owed_by_snapshot);
+        if (names.length === 1) return names[0];
+        // If multiple, try to find the one that changed
+        return names.length > 0 ? names[0] : "";
     };
 
     // Render Transaction Audit Feed
@@ -137,91 +273,62 @@ document.addEventListener("DOMContentLoaded", () => {
 
         logsFeed.innerHTML = "";
         
-        // Calculate deltas by looking at previous balances for ADD_FUNDS and DEBT_COLLECTED
-        transactions.forEach((tx, idx) => {
-            let prevBalance = 5000;
+        // Precompute balance deltas for each transaction
+        // Transactions are newest-first. Index 0 is newest.
+        // To compute delta: compare this tx's remaining_balance to the PREVIOUS tx's remaining_balance
+        // The "previous" tx (chronologically earlier) is at index + 1 in the array.
+        // The very oldest tx (last in array) compares against the initial balance of 5000.
+        const deltas = transactions.map((tx, idx) => {
+            let prevBalance;
             if (idx < transactions.length - 1) {
                 prevBalance = transactions[idx + 1].remaining_balance;
+            } else {
+                // Oldest transaction — compare against initial balance
+                prevBalance = DEFAULT_BALANCE;
             }
-            tx._delta = tx.remaining_balance - prevBalance;
+            return tx.remaining_balance - prevBalance;
         });
 
-        transactions.forEach((tx) => {
-            const action = tx.action_taken || (tx.approved_amount > 0 ? "APPROVE_INTENT" : "REJECT_INTENT");
-            
-            let cardClass = "";
-            let chipClass = "";
-            let chipText = "";
-
-            if (action === "ADD_FUNDS") {
-                cardClass = "approved-card";
-                chipClass = "chip-approved";
-                chipText = `+₹${formatCurrency(tx._delta > 0 ? tx._delta : 0)} Added`;
-            } else if (action === "DEBT_COLLECTED") {
-                cardClass = "approved-card";
-                chipClass = "chip-approved";
-                chipText = `+₹${formatCurrency(tx._delta > 0 ? tx._delta : 0)} Collected`;
-            } else if (action === "LEND_MONEY") {
-                cardClass = "rejected-card";
-                chipClass = "chip-rejected";
-                chipText = `-₹${formatCurrency(tx.approved_amount)} Lent`;
-            } else if (action === "SET_EXACT_BALANCE") {
-                cardClass = "approved-card";
-                chipClass = "chip-approved";
-                chipText = `Balance Set`;
-            } else if (action === "QUERY_STATUS") {
-                cardClass = "approved-card";
-                chipClass = "chip-approved";
-                chipText = `Query / Status`;
-            } else if (action === "RETROACTIVE_DEDUCTION") {
-                cardClass = "rejected-card"; 
-                chipClass = "chip-rejected";
-                chipText = `-₹${formatCurrency(tx.approved_amount)} Deducted`;
-            } else if (action === "APPROVE_INTENT") {
-                cardClass = "approved-card";
-                chipClass = "chip-approved";
-                chipText = `-₹${formatCurrency(tx.approved_amount)} Approved`;
-            } else {
-                cardClass = "rejected-card";
-                chipClass = "chip-rejected";
-                chipText = `Rejected (₹0)`;
-            }
+        transactions.forEach((tx, idx) => {
+            const action = tx.action_taken || "UNKNOWN";
+            const delta = deltas[idx];
+            const display = getActionDisplay(action, tx, delta);
 
             const logCard = document.createElement("div");
-            logCard.className = `log-card ${cardClass}`;
+            logCard.className = `log-card ${display.cardClass}`;
             
+            // Build person tag HTML if applicable
+            let personHtml = "";
+            if (display.personLabel) {
+                personHtml = `<span class="person-tag">${escapeHtml(display.personLabel)}</span>`;
+            }
+
             logCard.innerHTML = `
                 <div class="log-header">
                     <div class="log-meta">
                         <span class="log-time">${formatTime(tx.timestamp)}</span>
                         <p class="log-pitch">"${escapeHtml(tx.expense_text)}"</p>
                     </div>
-                    <span class="decision-chip ${chipClass}">
-                        ${chipText}
-                    </span>
+                    <div class="log-chips">
+                        ${personHtml}
+                        <span class="decision-chip ${display.chipClass}">
+                            ${display.chipText}
+                        </span>
+                    </div>
                 </div>
                 <div class="cfo-roast-wrapper">
                     <div class="cfo-avatar">CFO</div>
                     <div class="cfo-message">${escapeHtml(tx.message)}</div>
                 </div>
+                <div class="log-balance-tag">Balance: ₹${formatCurrency(tx.remaining_balance)}</div>
             `;
             logsFeed.appendChild(logCard);
         });
     };
 
-    // Escape HTML helper to prevent XSS injection
-    const escapeHtml = (text) => {
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        };
-        return text.replace(/[&<>"']/g, function(m) { return map[m]; });
-    };
+    const DEFAULT_BALANCE = 5000;
 
-    // Draw luxury custom SVG runway decay chart
+    // Draw luxury custom SVG runway chart
     const drawRunwayChart = () => {
         const svgWidth = 600;
         const svgHeight = 80;
@@ -243,60 +350,63 @@ document.addEventListener("DOMContentLoaded", () => {
         const chartUsableWidth = svgWidth - paddingLeft - paddingRight;
         const chartUsableHeight = svgHeight - paddingTop - paddingBottom;
 
-        // Generate data points
-        // Start from ₹5,000 initial, adjust based on transaction chronological actions
-        let balancePoints = [5000];
-        
-        // Reverse transaction history to get chronological order (oldest first)
+        // Build balance history from transactions (oldest to newest)
+        // Transactions are stored newest-first, so reverse to get chronological order
+        let balancePoints = [DEFAULT_BALANCE];
         const chronTx = [...transactions].reverse();
         chronTx.forEach(tx => {
             balancePoints.push(tx.remaining_balance);
         });
 
-        // Current balance should be the final point
+        // Make sure current live balance is the last point
         if (balancePoints[balancePoints.length - 1] !== currentBalance) {
             balancePoints.push(currentBalance);
         }
 
-        const maxPoints = 8; // Max coordinate slots
-        const stepX = chartUsableWidth / (maxPoints - 1);
+        // Dynamically compute max balance for the Y-axis
+        // (handles cases where balance goes above 5000 via ADD_FUNDS or SET_EXACT_BALANCE)
+        const maxBalance = Math.max(DEFAULT_BALANCE, ...balancePoints);
 
-        // Map values to coordinates
-        let points = [];
-        balancePoints.forEach((val, idx) => {
-            if (idx < maxPoints) {
-                const x = paddingLeft + idx * stepX;
-                const ratio = Math.max(val / 5000, 0); // clamp to 0
-                const y = paddingTop + (1 - ratio) * chartUsableHeight;
-                points.push({ x, y });
-            }
+        // Determine point spacing based on actual number of data points
+        const numPoints = balancePoints.length;
+        const maxSlots = Math.max(numPoints, 3); // At least 3 slots for visual spacing
+        const stepX = chartUsableWidth / (maxSlots - 1);
+
+        // Map values to SVG coordinates
+        let points = balancePoints.map((val, idx) => {
+            const x = paddingLeft + idx * stepX;
+            const ratio = Math.max(val / maxBalance, 0);
+            const y = paddingTop + (1 - ratio) * chartUsableHeight;
+            return { x, y };
         });
 
-        // 1. Draw Dotted Projection Line to End (June 22nd)
-        const projectionPoints = [...points];
-        while (projectionPoints.length < maxPoints) {
-            const idx = projectionPoints.length;
-            const x = paddingLeft + idx * stepX;
-            // Projection is line straight or decay to zero
-            const val = currentBalance;
-            const ratio = Math.max(val / 5000, 0);
-            const y = paddingTop + (1 - ratio) * chartUsableHeight;
-            projectionPoints.push({ x, y });
-        }
-
-        // Generate SVG Path for projection line
-        if (projectionPoints.length > 0) {
-            let dProj = `M ${projectionPoints[0].x} ${projectionPoints[0].y}`;
-            for (let i = 1; i < projectionPoints.length; i++) {
-                dProj += ` L ${projectionPoints[i].x} ${projectionPoints[i].y}`;
+        // Trim to fit if too many points (downsample if more than 20)
+        if (points.length > 20) {
+            const step = Math.ceil(points.length / 20);
+            const sampled = [points[0]];
+            for (let i = step; i < points.length - 1; i += step) {
+                sampled.push(points[i]);
             }
-            const projLine = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            projLine.setAttribute("class", "chart-projection");
-            projLine.setAttribute("d", dProj);
-            runwayChartEl.appendChild(projLine);
+            sampled.push(points[points.length - 1]);
+            // Recalculate X positions for evenly spaced
+            const newStepX = chartUsableWidth / (sampled.length - 1);
+            sampled.forEach((p, idx) => { p.x = paddingLeft + idx * newStepX; });
+            points = sampled;
         }
 
-        // 2. Draw Actual Decay Line
+        // 1. Draw Dotted Projection Line to end
+        if (points.length > 0) {
+            const lastPoint = points[points.length - 1];
+            const endX = paddingLeft + chartUsableWidth;
+            if (lastPoint.x < endX - 5) {
+                const projLine = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                projLine.setAttribute("class", "chart-projection");
+                projLine.setAttribute("d", `M ${lastPoint.x} ${lastPoint.y} L ${endX} ${lastPoint.y}`);
+                runwayChartEl.appendChild(projLine);
+            }
+        }
+
+        // 2. Draw Actual Balance Line
         if (points.length > 0) {
             let dLine = `M ${points[0].x} ${points[0].y}`;
             let dArea = `M ${points[0].x} ${svgHeight - paddingBottom} L ${points[0].x} ${points[0].y}`;
@@ -308,7 +418,7 @@ document.addEventListener("DOMContentLoaded", () => {
             
             dArea += ` L ${points[points.length - 1].x} ${svgHeight - paddingBottom} Z`;
 
-            // Draw Area
+            // Draw Area fill
             const areaPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
             areaPath.setAttribute("fill", "url(#chartGrad)");
             areaPath.setAttribute("d", dArea);
@@ -320,7 +430,7 @@ document.addEventListener("DOMContentLoaded", () => {
             linePath.setAttribute("d", dLine);
             runwayChartEl.appendChild(linePath);
 
-            // Draw glowing dot on the latest balance point
+            // Draw glowing dot on latest balance point
             const latestPoint = points[points.length - 1];
             const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
             dot.setAttribute("class", "chart-dot");
@@ -374,7 +484,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             expenseInput.value = "";
-            await fetchState(true); // Fetch and animate number decay!
+            await fetchState(true); // Fetch and animate balance change
 
         } catch (err) {
             alert(`Error pitching expense: ${err.message}`);
