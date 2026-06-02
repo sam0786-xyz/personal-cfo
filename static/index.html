@@ -5,87 +5,84 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CFO | Financial Guardian</title>
     <meta name="description" content="An aggressive, highly analytical AI financial guardian protecting your runway.">
-    <!-- Google Fonts -->
+    <!-- Google Fonts: Inter for UI, Roboto Mono for numbers/terminal -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260602">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=20260603">
 </head>
 <body>
-    <div class="glow-orb glow-orb-1"></div>
-    <div class="glow-orb glow-orb-2"></div>
+    <!-- Background Ambient Glows -->
+    <div class="ambient-glow glow-primary"></div>
+    <div class="ambient-glow glow-secondary"></div>
+    
+    <!-- Background Noise Texture -->
+    <div class="noise-overlay"></div>
 
     <div class="app-container">
         <!-- Top Navbar -->
         <header class="app-header">
             <div class="logo-area">
-                <svg class="logo-icon" viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2.5">
+                <svg class="logo-icon" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
                 </svg>
                 <div class="logo-text">
-                    <h1>PERSONAL<span>CFO</span></h1>
-                    <p>AI Financial Guardian</p>
+                    <h1>AGENT<span>CFO</span></h1>
                 </div>
             </div>
+            
             <div class="header-controls">
                 <span class="status-pill active-status">
                     <span class="pulse-dot"></span>
                     Guardian Active
                 </span>
-                <button id="resetBtn" class="btn btn-secondary btn-icon" title="Reset runway balance to ₹5,000">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                <button id="resetBtn" class="btn btn-ghost btn-icon" title="Reset runway balance to ₹5,000">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                        <path d="M3 3v5h5"/>
                     </svg>
-                    Reset
                 </button>
             </div>
         </header>
 
-        <!-- Main Dashboard Content -->
         <main class="dashboard-grid">
-            
-            <!-- Hero Balance Card (Full Width initially, or top span) -->
-            <section class="hero-balance-card glass-panel">
-                <div class="balance-meta">
-                    <h2>TOTAL REMAINING RUNWAY</h2>
+            <!-- Top Section: Runway HUD -->
+            <section class="hud-panel glass-panel hero-span">
+                <div class="hud-header">
+                    <div class="hud-label">NET RUNWAY BALANCE</div>
                     <div class="days-badge">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
                             <line x1="16" y1="2" x2="16" y2="6"></line>
                             <line x1="8" y1="2" x2="8" y2="6"></line>
                             <line x1="3" y1="10" x2="21" y2="10"></line>
                         </svg>
-                        <span id="daysLeftText">26 Days Left</span>
+                        <span id="daysLeftText">Evaluating...</span>
                     </div>
                 </div>
-                
-                <div class="balance-display">
+
+                <div class="hud-balance">
                     <span class="currency-symbol">₹</span>
-                    <h1 id="balanceAmount">5,000</h1>
+                    <span id="balanceAmount" class="balance-number text-glow">5,000</span>
                 </div>
 
-                <div class="balance-footer">
-                    <div class="stat-group">
-                        <span class="stat-label">Daily Budget Cap</span>
-                        <span class="stat-val" id="dailyBudget">₹192/day</span>
+                <div class="hud-metrics">
+                    <div class="metric-group">
+                        <span class="metric-label">DAILY BUDGET LIMIT</span>
+                        <span id="dailyBudget" class="metric-value text-emerald">₹0/day</span>
                     </div>
-                    <div class="stat-group">
-                        <span class="stat-label">Target Milestone</span>
-                        <span class="stat-val text-indigo">June 22nd</span>
+                    <div class="metric-group">
+                        <span class="metric-label">FOOLISH INTENTS BLOCKED</span>
+                        <span id="totalBurnsCount" class="metric-value text-crimson">0</span>
                     </div>
-                    <div class="stat-group">
-                        <span class="stat-label">Total Burns</span>
-                        <span class="stat-val text-red" id="totalBurnsCount">0</span>
-                    </div>
-                    <div class="stat-group">
-                        <span class="stat-label">Money Owed</span>
-                        <span class="stat-val text-green" id="totalOwedAmount">₹0</span>
+                    <div class="metric-group">
+                        <span class="metric-label">OUTSTANDING DEBTS (OWED TO YOU)</span>
+                        <span id="totalOwedAmount" class="metric-value text-indigo">₹0</span>
                     </div>
                 </div>
 
-                <!-- Per-person debt breakdown -->
                 <div id="owedBreakdown" class="owed-breakdown">
-                    <span class="owed-empty">No outstanding debts</span>
+                    <!-- Dynamic debt breakdown injected here -->
                 </div>
 
                 <!-- Runway Chart visualization -->
@@ -96,8 +93,12 @@
                                 <stop offset="0%" stop-color="var(--color-indigo)" stop-opacity="0.3"></stop>
                                 <stop offset="100%" stop-color="var(--color-indigo)" stop-opacity="0.0"></stop>
                             </linearGradient>
+                            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                                <feGaussianBlur stdDeviation="3" result="blur" />
+                                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                            </filter>
                         </defs>
-                        <!-- Dynamic SVG paths will be injected here -->
+                        <!-- Chart paths injected via JS -->
                     </svg>
                 </div>
             </section>
@@ -105,38 +106,39 @@
             <!-- Bottom Left: Expense Input Sandbox -->
             <section class="sandbox-section glass-panel">
                 <div class="section-header">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                    </svg>
-                    <h2>Financial Expense Sandbox</h2>
+                    <div class="icon-wrapper bg-indigo-muted">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--color-indigo)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 20V10M18 20V4M6 20v-4"/>
+                        </svg>
+                    </div>
+                    <h2>Command Sandbox</h2>
                 </div>
-                <p class="section-desc">Talk to your AI CFO — pitch expenses, report spending, lend money, collect debts, or just check your status. The agent decides what to do.</p>
                 
+                <p class="section-desc">Submit expenses, report income, lend money, or query status. The AI Agent enforces strict financial discipline.</p>
+
                 <form id="expenseForm" class="sandbox-form">
                     <div class="textarea-wrapper">
-                        <textarea id="expenseInput" placeholder="e.g., I want to buy a ₹400 cold coffee at a fancy cafe..." required></textarea>
-                        <div class="word-indicator">AI Guardian evaluates automatically</div>
+                        <textarea id="expenseInput" placeholder="e.g., I want to buy a ₹400 cold coffee..." required spellcheck="false"></textarea>
+                        <div class="input-glow-border"></div>
                     </div>
                     
                     <button type="submit" id="submitBtn" class="btn btn-primary">
-                        <span class="btn-text">Pitch to AI CFO</span>
-                        <svg class="arrow-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <span class="btn-text">Execute Command</span>
+                        <svg class="arrow-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                             <line x1="5" y1="12" x2="19" y2="12"></line>
                             <polyline points="12 5 19 12 12 19"></polyline>
                         </svg>
                     </button>
                 </form>
 
-                <!-- Custom template shortcuts to help user test -->
                 <div class="shortcuts-group">
-                    <span class="shortcuts-label">Quick Templates:</span>
+                    <span class="shortcuts-label">Quick Actions</span>
                     <div class="shortcuts-list">
-                        <button class="shortcut-tag" data-value="I already spent ₹350 on a cold brew coffee to stay awake for coding.">☕ Cafe Coffee</button>
-                        <button class="shortcut-tag" data-value="I need to pay ₹1200 for a server instance hosting our active AI agent.">🖥️ Server Costs</button>
-                        <button class="shortcut-tag" data-value="I gave ₹500 to Faizan for lunch, he’ll pay me back.">🤝 Lend Money</button>
-                        <button class="shortcut-tag" data-value="Faizan returned the ₹500 he owed me.">💸 Collect Debt</button>
-                        <button class="shortcut-tag" data-value="My balance is now ₹4000 after some offline expenses.">⚡ Set Balance</button>
-                        <button class="shortcut-tag" data-value="Who owes me money and what’s my current balance?">📊 Status Check</button>
+                        <button class="shortcut-tag" data-value="I want to buy a ₹350 iced coffee">☕ Coffee</button>
+                        <button class="shortcut-tag" data-value="I need to pay ₹1200 for AWS server costs">💻 Servers</button>
+                        <button class="shortcut-tag" data-value="I am lending ₹500 to Faizan">🤝 Lend Money</button>
+                        <button class="shortcut-tag" data-value="Faizan returned ₹500 to me">💰 Collect Debt</button>
+                        <button class="shortcut-tag" data-value="My total balance is now exactly ₹6000">⚡ Set Balance</button>
                     </div>
                 </div>
             </section>
@@ -144,41 +146,31 @@
             <!-- Bottom Right: Live Roast Feed & Logs -->
             <section class="logs-section glass-panel">
                 <div class="section-header">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M12 20h9M3 20v-8a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v8M3 10V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4"/>
-                        <path d="M13 14v-4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4"/>
-                    </svg>
-                    <h2>Live Audit Roast Feed</h2>
-                </div>
-                
-                <div id="logsFeed" class="logs-feed">
-                    <!-- Dynamic logs will be injected here. Empty State initially -->
-                    <div class="empty-state">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" />
+                    <div class="icon-wrapper bg-emerald-muted">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--color-emerald)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 17l6-6-6-6M12 19h8"/>
                         </svg>
-                        <p>No evaluations yet. Test the CFO above!</p>
+                    </div>
+                    <h2>Audit Feed</h2>
+                </div>
+
+                <div class="feed-container">
+                    <div id="thinkingLoader" class="loader-overlay hidden">
+                        <div class="spinner"></div>
+                        <div class="loader-text">
+                            <span id="loaderTitle" class="loader-title">Authenticating request...</span>
+                            <span id="loaderSubtitle" class="loader-subtitle">Awaiting agent response</span>
+                        </div>
+                    </div>
+
+                    <div id="logsFeed" class="logs-feed">
+                        <!-- Logs injected dynamically -->
                     </div>
                 </div>
             </section>
-
         </main>
     </div>
 
-    <!-- Full-screen thinking Loader -->
-    <div id="thinkingLoader" class="thinking-loader hidden">
-        <div class="loader-content">
-            <div class="loader-spinner">
-                <svg viewBox="0 0 50 50">
-                    <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
-                </svg>
-            </div>
-            <h3 id="loaderTitle">Roasting financial decisions...</h3>
-            <p id="loaderSubtitle">Calculating net worth decay matrix</p>
-        </div>
-    </div>
-
-    <script src="app.js?v=20260602"></script>
+    <script src="app.js?v=20260603"></script>
 </body>
 </html>

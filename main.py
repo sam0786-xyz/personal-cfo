@@ -6,6 +6,7 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import json
 import os
 from google.cloud import firestore
@@ -23,26 +24,54 @@ app.add_middleware(
 )
 
 api_key = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key)
+client = genai.Client(api_key=api_key) if api_key else None
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+IST = ZoneInfo("Asia/Kolkata")
 
 db = firestore.Client()
 doc_ref = db.collection("cfo_state").document("wallet")
 DEFAULT_BALANCE = 5000
+TARGET_DATE = datetime(2026, 6, 22, tzinfo=IST)
+
+def days_until_target():
+    today = datetime.now(IST)
+    return max((TARGET_DATE.date() - today.date()).days, 1)
+
+def normalize_state(state):
+    state = state or {}
+    current_balance = int(state.get("current_balance", DEFAULT_BALANCE))
+    transactions = state.get("transactions") or []
+    owed_by = state.get("owed_by") or {}
+    owed_by = {
+        str(name).strip().title(): int(amount)
+        for name, amount in owed_by.items()
+        if str(name).strip() and int(amount) > 0
+    }
+    return {
+        "current_balance": current_balance,
+        "transactions": transactions,
+        "owed_by": owed_by,
+        "updated_at": state.get("updated_at"),
+    }
 
 def get_state():
     doc = doc_ref.get()
     if doc.exists:
-        state = doc.to_dict()
-        if "owed_by" not in state:
-            state["owed_by"] = {}
-        return state
-    return {"current_balance": 5000, "transactions": [], "owed_by": {}} 
+        return normalize_state(doc.to_dict())
+    return normalize_state({"current_balance": DEFAULT_BALANCE, "transactions": [], "owed_by": {}})
 
 def save_state(state):
+    state["updated_at"] = datetime.now(IST).isoformat()
     doc_ref.set(state)
 
 class ExpenseRequest(BaseModel):
-    expense_text: str
+    expense_text: str | None = None
+    text: str | None = None
+    input: str | None = None
+    query: str | None = None
+
+    def prompt_text(self):
+        return (self.expense_text or self.text or self.input or self.query or "").strip()
 
 class AgentDecision(BaseModel):
     message: str
@@ -56,6 +85,10 @@ class AgentDecision(BaseModel):
 async def cfo_state():
     return get_state()
 
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok", "service": "personal-cfo"}
+
 @app.post("/cfo-reset")
 async def cfo_reset():
     state = {"current_balance": DEFAULT_BALANCE, "transactions": [], "owed_by": {}}
@@ -64,6 +97,12 @@ async def cfo_reset():
 
 @app.post("/cfo-check")
 async def cfo_check(request: ExpenseRequest):
+    prompt_text = request.prompt_text()
+    if not prompt_text:
+        raise HTTPException(status_code=400, detail="Send JSON with expense_text, text, input, or query.")
+    if client is None:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
+
     state = get_state()
     current_balance = state.get("current_balance", DEFAULT_BALANCE)
     owed_by = state.get("owed_by", {})
@@ -71,9 +110,7 @@ async def cfo_check(request: ExpenseRequest):
     # Clean up any zero-balance debts from previous runs
     owed_by = {k: v for k, v in owed_by.items() if v > 0}
     
-    target_date = datetime(2026, 6, 22)
-    today = datetime.now()
-    days_left = max((target_date - today).days, 1)
+    days_left = days_until_target()
     
     debt_string = ", ".join([f"{name} owes ₹{amt}" for name, amt in owed_by.items()])
     if not debt_string: debt_string = "Nobody owes him money."
@@ -98,8 +135,8 @@ async def cfo_check(request: ExpenseRequest):
     
     try:
         response = client.models.generate_content(
-            model='gemini-3.5-flash', 
-            contents=request.expense_text,
+            model=GEMINI_MODEL,
+            contents=prompt_text,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 response_mime_type="application/json",
@@ -171,10 +208,11 @@ async def cfo_check(request: ExpenseRequest):
         decision["funds_added"] = funds
             
         transaction = {
-            "timestamp": datetime.now().isoformat(),
-            "expense_text": request.expense_text,
+            "timestamp": datetime.now(IST).isoformat(),
+            "expense_text": prompt_text,
             "action_taken": decision.get("action_taken"),
             "approved_amount": expense,
+            "funds_added": funds,
             "message": decision.get("message", ""),
             "remaining_balance": new_balance,
             "owed_by_snapshot": dict(owed_by) 
@@ -184,6 +222,11 @@ async def cfo_check(request: ExpenseRequest):
         save_state(state)
         
         decision["current_balance"] = new_balance
+        decision["state"] = state
+        decision["days_left"] = days_left
+        decision["daily_budget_cap"] = max(round(new_balance / days_left), 0)
+        decision["total_owed"] = sum(owed_by.values())
+        decision["speak_text"] = decision.get("message", "")
         return decision
 
     except Exception as e:
