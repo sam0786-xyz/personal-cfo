@@ -51,23 +51,40 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     const getDaysRemaining = () => Math.max(Math.ceil((TARGET_DATE - new Date()) / (1000 * 60 * 60 * 24)), 1);
 
-    // Advanced Easing: expoOut
-    const easeOutExpo = (x) => x === 1 ? 1 : 1 - Math.pow(2, -10 * x);
+    // Advanced Spring Physics (Emil Kowalski style)
+    const animateSpring = (startVal, endVal, onUpdate) => {
+        let current = startVal;
+        let velocity = 0;
+        const tension = 120; // Stiffness
+        const friction = 14; // Damping
+        const mass = 1;
+        let lastTime = performance.now();
+        let animationFrame;
 
-    const animateBalance = (startVal, endVal, duration = 1500) => {
-        const start = performance.now();
-        function update(currentTime) {
-            const elapsed = currentTime - start;
-            const progress = Math.min(elapsed / duration, 1);
-            const easeProgress = easeOutExpo(progress);
-            
-            const currentVal = Math.round(startVal + (endVal - startVal) * easeProgress);
-            balanceAmountEl.textContent = formatCurrency(currentVal);
-            
-            if (progress < 1) requestAnimationFrame(update);
-            else balanceAmountEl.textContent = formatCurrency(endVal);
-        }
-        requestAnimationFrame(update);
+        const update = (currentTime) => {
+            const dt = Math.min((currentTime - lastTime) / 1000, 0.032);
+            lastTime = currentTime;
+
+            const force = tension * (endVal - current) - friction * velocity;
+            velocity += (force / mass) * dt;
+            current += velocity * dt;
+
+            onUpdate(Math.round(current));
+
+            // Stop if velocity is near zero and we are very close to target
+            if (Math.abs(velocity) < 0.5 && Math.abs(endVal - current) < 0.5) {
+                onUpdate(endVal);
+            } else {
+                animationFrame = requestAnimationFrame(update);
+            }
+        };
+        animationFrame = requestAnimationFrame(update);
+    };
+
+    const animateBalance = (startVal, endVal) => {
+        animateSpring(startVal, endVal, (val) => {
+            balanceAmountEl.textContent = formatCurrency(val);
+        });
     };
 
     // Action Display Mapper

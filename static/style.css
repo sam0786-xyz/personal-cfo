@@ -43,6 +43,12 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+    background: var(--color-indigo-glow);
+    color: var(--color-text-primary);
 }
 
 body {
@@ -178,6 +184,7 @@ svg {
     font-size: 1.25rem;
     font-weight: 700;
     letter-spacing: -0.5px;
+    text-wrap: balance;
 }
 
 .logo-text h1 span {
@@ -283,6 +290,7 @@ svg {
     letter-spacing: -2px;
     line-height: 1;
     color: var(--color-text-primary);
+    text-wrap: balance;
 }
 
 .text-glow {
@@ -417,6 +425,7 @@ svg {
     font-size: 1.1rem;
     font-weight: 600;
     letter-spacing: -0.2px;
+    text-wrap: balance;
 }
 
 .section-desc {
@@ -475,6 +484,12 @@ svg {
     cursor: pointer;
     border: 1px solid transparent;
     transition: var(--transition-smooth);
+    will-change: transform;
+}
+
+.btn:active {
+    transform: scale(0.97);
+    transition: var(--transition-snappy);
 }
 
 .btn-primary {
@@ -540,11 +555,16 @@ svg {
     font-size: 0.75rem;
     cursor: pointer;
     transition: var(--transition-snappy);
+    will-change: transform;
 }
 
 .shortcut-tag:hover {
     background: rgba(255, 255, 255, 0.08);
     color: var(--color-text-primary);
+}
+
+.shortcut-tag:active {
+    transform: scale(0.95);
 }
 
 /* ==========================================================================
