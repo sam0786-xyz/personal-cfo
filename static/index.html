@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260601">
+    <link rel="stylesheet" href="style.css?v=20260602">
 </head>
 <body>
     <div class="glow-orb glow-orb-1"></div>
@@ -19,7 +19,7 @@
         <!-- Top Navbar -->
         <header class="app-header">
             <div class="logo-area">
-                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <svg class="logo-icon" viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2.5">
                     <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
                 </svg>
                 <div class="logo-text">
@@ -33,7 +33,7 @@
                     Guardian Active
                 </span>
                 <button id="resetBtn" class="btn btn-secondary btn-icon" title="Reset runway balance to ₹5,000">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
                     </svg>
                     Reset
@@ -49,7 +49,7 @@
                 <div class="balance-meta">
                     <h2>TOTAL REMAINING RUNWAY</h2>
                     <div class="days-badge">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
                             <line x1="16" y1="2" x2="16" y2="6"></line>
                             <line x1="8" y1="2" x2="8" y2="6"></line>
@@ -90,7 +90,7 @@
 
                 <!-- Runway Chart visualization -->
                 <div class="chart-container">
-                    <svg id="runwayChart" viewBox="0 0 600 80" preserveAspectRatio="none">
+                    <svg id="runwayChart" viewBox="0 0 600 80" width="600" height="80" preserveAspectRatio="none">
                         <defs>
                             <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="0%" stop-color="var(--color-indigo)" stop-opacity="0.3"></stop>
@@ -105,7 +105,7 @@
             <!-- Bottom Left: Expense Input Sandbox -->
             <section class="sandbox-section glass-panel">
                 <div class="section-header">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                     </svg>
                     <h2>Financial Expense Sandbox</h2>
@@ -120,7 +120,7 @@
                     
                     <button type="submit" id="submitBtn" class="btn btn-primary">
                         <span class="btn-text">Pitch to AI CFO</span>
-                        <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <svg class="arrow-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
                             <line x1="5" y1="12" x2="19" y2="12"></line>
                             <polyline points="12 5 19 12 12 19"></polyline>
                         </svg>
@@ -144,7 +144,7 @@
             <!-- Bottom Right: Live Roast Feed & Logs -->
             <section class="logs-section glass-panel">
                 <div class="section-header">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M12 20h9M3 20v-8a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v8M3 10V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4"/>
                         <path d="M13 14v-4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4"/>
                     </svg>
@@ -179,6 +179,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260601"></script>
+    <script src="app.js?v=20260602"></script>
 </body>
 </html>
