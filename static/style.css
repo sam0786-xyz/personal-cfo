@@ -94,15 +94,25 @@ svg {
     mix-blend-mode: overlay;
 }
 
+/* Disable noise on mobile to save GPU */
+@media (max-width: 600px) {
+    .noise-overlay { display: none; }
+}
+
 .ambient-glow {
     position: fixed;
     width: 600px;
     height: 600px;
     border-radius: 50%;
-    filter: blur(160px);
+    filter: blur(120px);
     z-index: -1;
     pointer-events: none;
-    opacity: 0.15;
+    opacity: 0.12;
+}
+
+/* Disable ambient glow on mobile for performance */
+@media (max-width: 600px) {
+    .ambient-glow { display: none; }
 }
 
 .glow-primary {
@@ -145,10 +155,19 @@ svg {
     border-radius: var(--border-radius-lg);
     padding: 2rem;
     box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
     position: relative;
     overflow: hidden;
+}
+
+/* Disable backdrop-filter entirely on mobile Safari for performance */
+@media (max-width: 600px) {
+    .glass-panel {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+        background: rgba(20, 20, 22, 0.92);
+    }
 }
 
 .glass-panel::before {
@@ -691,9 +710,9 @@ svg {
 .loader-overlay {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(20, 20, 22, 0.8);
-    backdrop-filter: blur(4px);
+    background: rgba(20, 20, 22, 0.92);
     -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -702,6 +721,13 @@ svg {
     z-index: 10;
     border-radius: var(--border-radius-md);
     border: 1px solid var(--color-panel-border);
+}
+
+@media (max-width: 600px) {
+    .loader-overlay {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
 }
 
 .loader-overlay.hidden {
@@ -747,6 +773,10 @@ svg {
         grid-template-columns: 1fr;
     }
     
+    .hero-span {
+        grid-column: 1;
+    }
+
     .hud-metrics {
         flex-direction: column;
         align-items: center;
@@ -776,6 +806,31 @@ svg {
     }
 
     .balance-number {
-        font-size: 4rem;
+        font-size: 3rem;
+    }
+
+    .currency-symbol {
+        font-size: 2rem;
+    }
+
+    .hud-panel {
+        padding: 2rem 1rem;
+    }
+
+    .chart-container {
+        height: 80px;
+    }
+
+    .logs-feed {
+        max-height: 350px;
+    }
+
+    .section-desc {
+        font-size: 0.8rem;
+    }
+
+    #expenseInput {
+        min-height: 80px;
+        font-size: 0.9rem;
     }
 }

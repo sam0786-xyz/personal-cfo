@@ -32,6 +32,12 @@ async def add_security_headers(request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # Force Safari to revalidate HTML on every load (prevents stale cache)
+    content_type = response.headers.get("content-type", "")
+    if "text/html" in content_type:
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     return response
 
 api_key = os.environ.get("GEMINI_API_KEY")
