@@ -11,6 +11,7 @@ import json
 import os
 import base64
 import logging
+import re
 from google.cloud import firestore
 from google.cloud import secretmanager
 from google.oauth2.credentials import Credentials
@@ -93,21 +94,19 @@ def is_safe_transaction_email(subject: str) -> bool:
     # DEFAULT-DENY: Unknown → skip for safety
     return False
 
-# --- Layer 3: Body Kill Switch (Deterministic) ---
-FORBIDDEN_BODY_TERMS = [
-    "OTP", "ONE TIME PASSWORD", "VERIFICATION CODE",
-    "DO NOT SHARE", "SECURITY CODE", "TEMPORARY PASSWORD",
-    "ENTER THIS CODE"
-]
-
-def is_body_safe(raw_body: str) -> bool:
-    """Layer 3: Scan body for OTP terms BEFORE sending to Gemini."""
-    body_upper = raw_body.upper()
-    if any(term in body_upper for term in FORBIDDEN_BODY_TERMS):
-        # CRITICAL: Do NOT log raw_body here
-        logger.warning("SECURITY: Blocked email containing OTP/sensitive content from reaching LLM.")
-        return False
-    return True
+# --- Layer 3: Body Sanitizer (Deterministic) ---
+def sanitize_body(raw_body: str) -> str:
+    """Layer 3: Scan body for OTP terms BEFORE sending to Gemini and redact them.
+    Unlike a kill-switch, this allows transaction emails with standard
+    bank footers (e.g. 'Never share your OTP') to still be processed."""
+    
+    # 1. Redact numbers immediately following sensitive keywords
+    redacted = re.sub(r'(?i)(otp|pin|password|code)[\s\-:]*(\d{4,8})', r'\1 [BLOCKED]', raw_body)
+    
+    # 2. Redact standalone 6-digit numbers as an extra safety net
+    redacted = re.sub(r'\b\d{6}\b', '[BLOCKED]', redacted)
+    
+    return redacted
 
 def strip_html(html_content: str) -> str:
     """Strip HTML tags and return plain text."""
@@ -493,9 +492,10 @@ async def gmail_webhook(request: Request):
                     metadataHeaders=["From", "Subject"]
                 ).execute()
                 
-                headers = {h["name"]: h["value"] for h in msg_meta.get("payload", {}).get("headers", [])}
-                sender = headers.get("From", "")
-                subject = headers.get("Subject", "")
+                # Make header lookups case-insensitive
+                headers = {h["name"].lower(): h["value"] for h in msg_meta.get("payload", {}).get("headers", [])}
+                sender = headers.get("from", "")
+                subject = headers.get("subject", "")
                 
                 # CHECK: Is it from Axis Bank?
                 if AXIS_BANK_SENDER not in sender.lower():
@@ -520,13 +520,11 @@ async def gmail_webhook(request: Request):
                     processed_ids.append(msg_id)
                     continue
                 
-                # LAYER 3: Body kill switch
-                if not is_body_safe(body_text):
-                    processed_ids.append(msg_id)
-                    continue
+                # LAYER 3: Body Sanitizer (Redact OTPs, don't drop the email)
+                safe_body_text = sanitize_body(body_text)
                 
                 # ALL 3 LAYERS PASSED — Send to Gemini
-                txn_data = parse_bank_email(body_text)
+                txn_data = parse_bank_email(safe_body_text)
                 
                 if txn_data:
                     # Reconcile the balance
