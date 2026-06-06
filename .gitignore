@@ -11,3 +11,4 @@ wheels/
 .env
 
 client_secret.json
+scripts/client_secret*.json
