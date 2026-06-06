@@ -469,8 +469,10 @@ async def gmail_webhook(request: Request):
             "startHistoryId": last_history_id,
             "historyTypes": ["messageAdded"]
         }
-        if label_id:
-            history_params["labelId"] = label_id
+        # NOTE: We do NOT filter by labelId here because Gmail filters
+        # may not apply labels reliably to new emails. Instead, we rely
+        # on Layer 2 (subject gate) and Layer 3 (body kill switch) for
+        # OTP safety. The Gmail label filter is a bonus, not a dependency.
         
         history_response = service.users().history().list(**history_params).execute()
         history_list = history_response.get("history", [])
@@ -631,8 +633,8 @@ async def gmail_watch():
         request_body = {
             "topicName": f"projects/{GCP_PROJECT}/topics/gmail-bank-alerts"
         }
-        if label_id:
-            request_body["labelIds"] = [label_id]
+        # NOTE: We do NOT restrict by labelIds because Gmail filters
+        # may not reliably apply labels. Our Python Layers 2+3 handle OTP safety.
         
         response = service.users().watch(userId="me", body=request_body).execute()
         
