@@ -59,7 +59,7 @@ DEFAULT_BALANCE = 5000
 TARGET_DATE = datetime(2026, 6, 22, tzinfo=IST)
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "gen-lang-client-0592771092")
-AXIS_BANK_SENDER = "alerts@axisbankmail.in"
+AXIS_BANK_SENDER = "alerts@axis.bank.in"
 
 # ==========================================================================
 #  GMAIL GROUND TRUTH PIPELINE — 3-LAYER OTP DEFENSE
