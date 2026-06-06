@@ -91,6 +91,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const getActionDisplay = (action, tx, balanceDelta) => {
         const person = extractPerson(tx);
         const personStr = person ? ` (@${person})` : '';
+        const channel = tx.channel ? ` (${tx.channel})` : '';
 
         switch (action) {
             case "ADD_FUNDS": return { class: "badge-approved", text: `+₹${formatCurrency(Math.max(balanceDelta, 0))} Added`, icon: "↑" };
@@ -101,6 +102,8 @@ document.addEventListener("DOMContentLoaded", () => {
             case "APPROVE_INTENT": return { class: "badge-approved", text: `-₹${formatCurrency(tx.approved_amount)} Approved`, icon: "✓" };
             case "REJECT_INTENT": return { class: "badge-rejected", text: "Rejected (₹0)", icon: "✕" };
             case "QUERY_STATUS": return { class: "badge-query", text: "Status Query", icon: "ℹ" };
+            case "BANK_DEBIT": return { class: "badge-bank-debit", text: `-₹${formatCurrency(tx.approved_amount)} Bank Debit${channel}`, icon: "🏦" };
+            case "BANK_CREDIT": return { class: "badge-bank-credit", text: `+₹${formatCurrency(tx.funds_added)} Bank Credit${channel}`, icon: "🏦" };
             default: return { class: "badge-rejected", text: `Unknown`, icon: "?" };
         }
     };
@@ -169,9 +172,9 @@ document.addEventListener("DOMContentLoaded", () => {
                     <span>${formatTime(tx.timestamp)}</span>
                     <span class="badge ${display.class}">${display.icon} ${display.text}</span>
                 </div>
-                <div class="log-intent">"${escapeHtml(tx.expense_text)}"</div>
+                <div class="log-intent">${tx.source === 'GMAIL_SYNC' ? tx.expense_text : '"' + escapeHtml(tx.expense_text) + '"'}</div>
                 <div class="log-response">
-                    <span class="cfo-label">AGENT:</span>
+                    <span class="cfo-label">${tx.source === 'GMAIL_SYNC' ? 'BANK:' : 'AGENT:'}</span>
                     <span class="cfo-text">${escapeHtml(tx.message)}</span>
                 </div>
                 <div class="log-footer">
@@ -346,6 +349,32 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
+    // Bank Sync Status
+    const bankSyncPill = document.getElementById('bankSyncPill');
+    const fetchBankSyncStatus = async () => {
+        try {
+            const res = await fetch('/gmail-status');
+            if (!res.ok) return;
+            const status = await res.json();
+            if (bankSyncPill) {
+                if (status.watch_active && status.last_sync_at) {
+                    const ago = Math.round((Date.now() - new Date(status.last_sync_at).getTime()) / 60000);
+                    const agoText = ago < 1 ? 'Just now' : ago < 60 ? `${ago}m ago` : `${Math.round(ago/60)}h ago`;
+                    bankSyncPill.textContent = `🏦 ${agoText}`;
+                    bankSyncPill.title = `Bank Sync Active — Last: ${agoText} — Total: ${status.total_synced} synced`;
+                    bankSyncPill.classList.add('active');
+                } else {
+                    bankSyncPill.textContent = '🏦 Inactive';
+                    bankSyncPill.title = 'Bank sync not configured';
+                    bankSyncPill.classList.remove('active');
+                }
+            }
+        } catch (e) { /* silent fail */ }
+    };
+
     // Boot
     fetchState(false);
+    fetchBankSyncStatus();
+    // Refresh bank sync status every 60 seconds
+    setInterval(fetchBankSyncStatus, 60000);
 });

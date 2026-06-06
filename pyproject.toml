@@ -11,4 +11,8 @@ dependencies = [
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
     "uvicorn>=0.48.0",
+    "google-api-python-client>=2.0.0",
+    "google-auth-oauthlib>=1.0.0",
+    "google-cloud-secret-manager>=2.0.0",
+    "beautifulsoup4>=4.0.0",
 ]

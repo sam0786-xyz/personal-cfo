@@ -699,6 +699,22 @@ svg {
 .badge-rejected { background: rgba(225, 29, 72, 0.1); color: var(--color-crimson); }
 .badge-lend { background: rgba(245, 158, 11, 0.1); color: var(--color-amber); }
 .badge-query { background: rgba(99, 102, 241, 0.1); color: var(--color-indigo); }
+.badge-bank-debit { background: rgba(6, 182, 212, 0.1); color: #06b6d4; }
+.badge-bank-credit { background: rgba(56, 189, 248, 0.1); color: #38bdf8; }
+
+.bank-sync-pill {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--color-text-muted);
+    font-size: 0.7rem;
+    transition: var(--transition-smooth);
+}
+
+.bank-sync-pill.active {
+    background: rgba(6, 182, 212, 0.1);
+    border-color: rgba(6, 182, 212, 0.2);
+    color: #06b6d4;
+}
 
 .person-tag {
     font-family: var(--font-mono);

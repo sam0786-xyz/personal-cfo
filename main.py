@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -9,9 +9,16 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import json
 import os
+import base64
+import logging
 from google.cloud import firestore
+from google.cloud import secretmanager
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from bs4 import BeautifulSoup
 
 load_dotenv()
+logger = logging.getLogger("personal-cfo")
 
 app = FastAPI(title="Action Button CFO Dashboard")
 
@@ -47,8 +54,164 @@ IST = ZoneInfo("Asia/Kolkata")
 
 db = firestore.Client()
 doc_ref = db.collection("cfo_state").document("wallet")
+gmail_sync_ref = db.collection("cfo_state").document("gmail_sync")
 DEFAULT_BALANCE = 5000
 TARGET_DATE = datetime(2026, 6, 22, tzinfo=IST)
+
+GCP_PROJECT = os.environ.get("GCP_PROJECT", "gen-lang-client-0592771092")
+AXIS_BANK_SENDER = "alerts@axisbankmail.in"
+
+# ==========================================================================
+#  GMAIL GROUND TRUTH PIPELINE — 3-LAYER OTP DEFENSE
+# ==========================================================================
+
+# --- Layer 2: Subject-Line Gate (Deterministic) ---
+TRANSACTION_KEYWORDS = [
+    "debited", "credited", "transaction alert", "a/c no",
+    "withdrawn", "received", "transfer", "payment",
+    "purchase", "refund", "reversed", "emi", "auto-debit",
+    "neft", "imps", "upi", "standing instruction",
+    "amount", "inr"
+]
+
+BLOCK_KEYWORDS = [
+    "otp", "one time password", "password", "pin",
+    "verification", "verify", "login", "authenticate",
+    "reset", "security code", "2fa", "do not share",
+    "temporary password"
+]
+
+def is_safe_transaction_email(subject: str) -> bool:
+    """Layer 2: Check subject line. Returns True only for transaction alerts."""
+    subject_lower = subject.lower()
+    # HARD BLOCK: Any blocked keyword → reject immediately
+    if any(kw in subject_lower for kw in BLOCK_KEYWORDS):
+        return False
+    # ALLOW: Only if a transaction keyword is present
+    if any(kw in subject_lower for kw in TRANSACTION_KEYWORDS):
+        return True
+    # DEFAULT-DENY: Unknown → skip for safety
+    return False
+
+# --- Layer 3: Body Kill Switch (Deterministic) ---
+FORBIDDEN_BODY_TERMS = [
+    "OTP", "ONE TIME PASSWORD", "VERIFICATION CODE",
+    "DO NOT SHARE", "SECURITY CODE", "TEMPORARY PASSWORD",
+    "ENTER THIS CODE"
+]
+
+def is_body_safe(raw_body: str) -> bool:
+    """Layer 3: Scan body for OTP terms BEFORE sending to Gemini."""
+    body_upper = raw_body.upper()
+    if any(term in body_upper for term in FORBIDDEN_BODY_TERMS):
+        # CRITICAL: Do NOT log raw_body here
+        logger.warning("SECURITY: Blocked email containing OTP/sensitive content from reaching LLM.")
+        return False
+    return True
+
+def strip_html(html_content: str) -> str:
+    """Strip HTML tags and return plain text."""
+    soup = BeautifulSoup(html_content, "html.parser")
+    return soup.get_text(separator=" ", strip=True)
+
+# --- Gmail Service Builder ---
+def _get_secret(secret_id: str) -> str:
+    """Fetch a secret from Google Secret Manager."""
+    sm_client = secretmanager.SecretManagerServiceClient()
+    name = f"projects/{GCP_PROJECT}/secrets/{secret_id}/versions/latest"
+    response = sm_client.access_secret_version(request={"name": name})
+    return response.payload.data.decode("UTF-8")
+
+def get_gmail_service():
+    """Build an authenticated Gmail API service using stored OAuth credentials."""
+    refresh_token = _get_secret("gmail-refresh-token")
+    client_id = _get_secret("gmail-client-id")
+    client_secret = _get_secret("gmail-client-secret")
+    
+    creds = Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=["https://www.googleapis.com/auth/gmail.readonly"]
+    )
+    return build("gmail", "v1", credentials=creds, cache_discovery=False)
+
+# --- Gemini Bank Email Parser ---
+class BankTransaction(BaseModel):
+    amount: int
+    type: str       # DEBIT or CREDIT
+    merchant: str
+    channel: str    # UPI, NEFT, IMPS, ATM, CARD, AUTO_DEBIT, OTHER
+    txn_ref: str
+
+def parse_bank_email(body_text: str) -> dict | None:
+    """Use Gemini to extract structured transaction data from a bank email."""
+    if client is None:
+        logger.error("Gemini client not configured.")
+        return None
+    
+    system_prompt = (
+        "You are a bank transaction data extractor. Extract EXACTLY the following from this Axis Bank email:\n"
+        "- amount: The exact rupee amount as an integer (no decimals, no commas)\n"
+        "- type: 'DEBIT' if money was taken out, 'CREDIT' if money was received/added\n"
+        "- merchant: The merchant, beneficiary, or sender name\n"
+        "- channel: The payment channel — one of: UPI, NEFT, IMPS, ATM, CARD, AUTO_DEBIT, OTHER\n"
+        "- txn_ref: The transaction reference number if present, otherwise empty string\n\n"
+        "Output ONLY the structured JSON. Do NOT hallucinate amounts. Extract the EXACT numbers from the email."
+    )
+    
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=body_text,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                response_mime_type="application/json",
+                response_schema=BankTransaction,
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                    ),
+                ],
+            ),
+        )
+        return json.loads(response.text.strip())
+    except Exception as e:
+        logger.error(f"Gemini bank email parsing error: {e}")
+        return None
+
+def get_gmail_sync_state() -> dict:
+    """Get the Gmail sync state from Firestore."""
+    doc = gmail_sync_ref.get()
+    if doc.exists:
+        return doc.to_dict()
+    return {
+        "last_history_id": None,
+        "watch_expiration": None,
+        "label_id": None,
+        "processed_message_ids": [],
+        "last_sync_at": None,
+        "total_synced": 0
+    }
+
+def save_gmail_sync_state(state: dict):
+    """Save the Gmail sync state to Firestore."""
+    gmail_sync_ref.set(state)
 
 def days_until_target():
     today = datetime.now(IST)
@@ -260,6 +423,258 @@ async def cfo_check(request: ExpenseRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent Error: {str(e)}")
+
+# ==========================================================================
+#  GMAIL WEBHOOK ENDPOINTS
+# ==========================================================================
+
+@app.post("/gmail-webhook")
+async def gmail_webhook(request: Request):
+    """Receives Pub/Sub push notifications for new Gmail messages.
+    Processes bank transaction emails through the 3-layer security filter."""
+    try:
+        envelope = await request.json()
+        message = envelope.get("message", {})
+        
+        if not message.get("data"):
+            return {"status": "ignored", "reason": "no data in message"}
+        
+        # Decode the Pub/Sub payload
+        decoded = base64.b64decode(message["data"]).decode("utf-8")
+        payload = json.loads(decoded)
+        history_id = payload.get("historyId")
+        
+        if not history_id:
+            return {"status": "ignored", "reason": "no historyId"}
+        
+        # Get sync state
+        sync_state = get_gmail_sync_state()
+        last_history_id = sync_state.get("last_history_id")
+        processed_ids = sync_state.get("processed_message_ids", [])
+        label_id = sync_state.get("label_id")
+        
+        if not last_history_id:
+            # First run — just save the history ID and return
+            sync_state["last_history_id"] = history_id
+            sync_state["last_sync_at"] = datetime.now(IST).isoformat()
+            save_gmail_sync_state(sync_state)
+            return {"status": "initialized", "history_id": history_id}
+        
+        # Build Gmail service
+        service = get_gmail_service()
+        
+        # Fetch history since last check
+        history_params = {
+            "userId": "me",
+            "startHistoryId": last_history_id,
+            "historyTypes": ["messageAdded"]
+        }
+        if label_id:
+            history_params["labelId"] = label_id
+        
+        history_response = service.users().history().list(**history_params).execute()
+        history_list = history_response.get("history", [])
+        
+        processed_count = 0
+        
+        for history_item in history_list:
+            for msg_added in history_item.get("messagesAdded", []):
+                msg_id = msg_added["message"]["id"]
+                
+                # DEDUP: Skip already-processed messages
+                if msg_id in processed_ids:
+                    continue
+                
+                # Fetch message metadata (headers only — body not yet fetched)
+                msg_meta = service.users().messages().get(
+                    userId="me", id=msg_id, format="metadata",
+                    metadataHeaders=["From", "Subject"]
+                ).execute()
+                
+                headers = {h["name"]: h["value"] for h in msg_meta.get("payload", {}).get("headers", [])}
+                sender = headers.get("From", "")
+                subject = headers.get("Subject", "")
+                
+                # CHECK: Is it from Axis Bank?
+                if AXIS_BANK_SENDER not in sender.lower():
+                    processed_ids.append(msg_id)
+                    continue
+                
+                # LAYER 2: Subject-line gate
+                if not is_safe_transaction_email(subject):
+                    logger.info(f"Layer 2 blocked: {subject[:50]}...")
+                    processed_ids.append(msg_id)
+                    continue
+                
+                # Subject is safe — now fetch the full body
+                full_msg = service.users().messages().get(
+                    userId="me", id=msg_id, format="full"
+                ).execute()
+                
+                # Extract body text
+                body_text = _extract_email_body(full_msg.get("payload", {}))
+                
+                if not body_text:
+                    processed_ids.append(msg_id)
+                    continue
+                
+                # LAYER 3: Body kill switch
+                if not is_body_safe(body_text):
+                    processed_ids.append(msg_id)
+                    continue
+                
+                # ALL 3 LAYERS PASSED — Send to Gemini
+                txn_data = parse_bank_email(body_text)
+                
+                if txn_data:
+                    # Reconcile the balance
+                    _reconcile_balance(txn_data, subject)
+                    processed_count += 1
+                    # LOG ONLY SANITIZED DATA (Layer 4: Log Hygiene)
+                    logger.info(f"Bank sync: {txn_data.get('type')} ₹{txn_data.get('amount')} via {txn_data.get('channel')} — {txn_data.get('merchant')}")
+                
+                processed_ids.append(msg_id)
+        
+        # Keep only the last 100 processed IDs to prevent unbounded growth
+        if len(processed_ids) > 100:
+            processed_ids = processed_ids[-100:]
+        
+        # Update sync state
+        sync_state["last_history_id"] = history_id
+        sync_state["processed_message_ids"] = processed_ids
+        sync_state["last_sync_at"] = datetime.now(IST).isoformat()
+        sync_state["total_synced"] = sync_state.get("total_synced", 0) + processed_count
+        save_gmail_sync_state(sync_state)
+        
+        return {"status": "success", "processed": processed_count}
+    
+    except Exception as e:
+        logger.error(f"Gmail webhook error: {e}")
+        # Return 200 to prevent Pub/Sub from retrying endlessly
+        return {"status": "error", "detail": str(e)}
+
+
+def _extract_email_body(payload: dict) -> str:
+    """Extract plain text body from a Gmail message payload."""
+    # Try to find text/plain part first
+    if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
+        return base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="replace")
+    
+    # Check parts recursively
+    parts = payload.get("parts", [])
+    for part in parts:
+        if part.get("mimeType") == "text/plain" and part.get("body", {}).get("data"):
+            return base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace")
+    
+    # Fallback: try text/html and strip tags
+    for part in parts:
+        if part.get("mimeType") == "text/html" and part.get("body", {}).get("data"):
+            html = base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace")
+            return strip_html(html)
+    
+    # Try nested multipart
+    for part in parts:
+        if "parts" in part:
+            result = _extract_email_body(part)
+            if result:
+                return result
+    
+    return ""
+
+
+def _reconcile_balance(txn_data: dict, subject: str):
+    """Apply a parsed bank transaction to the Firestore state."""
+    state = get_state()
+    current_balance = state.get("current_balance", DEFAULT_BALANCE)
+    amount = int(txn_data.get("amount", 0))
+    txn_type = txn_data.get("type", "DEBIT")
+    
+    if amount <= 0:
+        return
+    
+    if txn_type == "DEBIT":
+        new_balance = current_balance - amount
+        action = "BANK_DEBIT"
+    else:
+        new_balance = current_balance + amount
+        action = "BANK_CREDIT"
+    
+    state["current_balance"] = new_balance
+    
+    # Create a sanitized transaction log entry (NO raw email body)
+    transaction = {
+        "timestamp": datetime.now(IST).isoformat(),
+        "expense_text": f"🏦 Auto-Synced: {txn_type} ₹{amount} via {txn_data.get('channel', 'UNKNOWN')}",
+        "action_taken": action,
+        "approved_amount": amount if txn_type == "DEBIT" else 0,
+        "funds_added": amount if txn_type == "CREDIT" else 0,
+        "message": f"{txn_data.get('merchant', 'Unknown')} — Ref: {txn_data.get('txn_ref', 'N/A')}",
+        "remaining_balance": new_balance,
+        "owed_by_snapshot": dict(state.get("owed_by", {})),
+        "source": "GMAIL_SYNC",
+        "channel": txn_data.get("channel", "UNKNOWN")
+    }
+    state["transactions"].insert(0, transaction)
+    
+    save_state(state)
+
+
+@app.post("/gmail-watch")
+async def gmail_watch():
+    """Register or renew Gmail push notifications.
+    Called by Cloud Scheduler every 3 days to keep the watch alive."""
+    try:
+        service = get_gmail_service()
+        sync_state = get_gmail_sync_state()
+        label_id = sync_state.get("label_id")
+        
+        request_body = {
+            "topicName": f"projects/{GCP_PROJECT}/topics/gmail-bank-alerts"
+        }
+        if label_id:
+            request_body["labelIds"] = [label_id]
+        
+        response = service.users().watch(userId="me", body=request_body).execute()
+        
+        # Update sync state with new expiration and history ID
+        sync_state["watch_expiration"] = response.get("expiration")
+        if response.get("historyId"):
+            sync_state["last_history_id"] = response["historyId"]
+        sync_state["last_sync_at"] = datetime.now(IST).isoformat()
+        save_gmail_sync_state(sync_state)
+        
+        return {
+            "status": "success",
+            "expiration": response.get("expiration"),
+            "historyId": response.get("historyId")
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gmail watch error: {str(e)}")
+
+
+@app.get("/gmail-status")
+async def gmail_status():
+    """Return current Gmail sync status for debugging and the frontend."""
+    sync_state = get_gmail_sync_state()
+    return {
+        "watch_active": sync_state.get("watch_expiration") is not None,
+        "watch_expiration": sync_state.get("watch_expiration"),
+        "last_sync_at": sync_state.get("last_sync_at"),
+        "total_synced": sync_state.get("total_synced", 0),
+        "label_id": sync_state.get("label_id"),
+        "last_history_id": sync_state.get("last_history_id")
+    }
+
+
+@app.post("/gmail-set-label")
+async def gmail_set_label(label_id: str):
+    """Set the Gmail label ID used for filtering. Call once after creating the label."""
+    sync_state = get_gmail_sync_state()
+    sync_state["label_id"] = label_id
+    save_gmail_sync_state(sync_state)
+    return {"status": "success", "label_id": label_id}
+
 
 os.makedirs("static", exist_ok=True)
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
