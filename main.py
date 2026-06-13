@@ -486,11 +486,17 @@ async def gmail_webhook(request: Request):
                 if msg_id in processed_ids:
                     continue
                 
-                # Fetch message metadata (headers only — body not yet fetched)
-                msg_meta = service.users().messages().get(
-                    userId="me", id=msg_id, format="metadata",
-                    metadataHeaders=["From", "Subject"]
-                ).execute()
+                try:
+                    # Fetch message metadata (headers only — body not yet fetched)
+                    msg_meta = service.users().messages().get(
+                        userId="me", id=msg_id, format="metadata",
+                        metadataHeaders=["From", "Subject"]
+                    ).execute()
+                except Exception as fetch_err:
+                    # Message was likely deleted/trashed between notification and fetch
+                    logger.warning(f"Skipping message {msg_id}: {fetch_err}")
+                    processed_ids.append(msg_id)
+                    continue
                 
                 # Make header lookups case-insensitive
                 headers = {h["name"].lower(): h["value"] for h in msg_meta.get("payload", {}).get("headers", [])}
@@ -509,9 +515,14 @@ async def gmail_webhook(request: Request):
                     continue
                 
                 # Subject is safe — now fetch the full body
-                full_msg = service.users().messages().get(
-                    userId="me", id=msg_id, format="full"
-                ).execute()
+                try:
+                    full_msg = service.users().messages().get(
+                        userId="me", id=msg_id, format="full"
+                    ).execute()
+                except Exception as body_err:
+                    logger.warning(f"Skipping body fetch for {msg_id}: {body_err}")
+                    processed_ids.append(msg_id)
+                    continue
                 
                 # Extract body text
                 body_text = _extract_email_body(full_msg.get("payload", {}))

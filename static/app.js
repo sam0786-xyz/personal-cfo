@@ -8,15 +8,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const owedBreakdownEl = document.getElementById("owedBreakdown");
     const runwayChartEl = document.getElementById("runwayChart");
     
-    const expenseForm = document.getElementById("expenseForm");
-    const expenseInput = document.getElementById("expenseInput");
-    const submitBtn = document.getElementById("submitBtn");
     const resetBtn = document.getElementById("resetBtn");
-    
     const logsFeed = document.getElementById("logsFeed");
-    const thinkingLoader = document.getElementById("thinkingLoader");
-    const loaderTitle = document.getElementById("loaderTitle");
-    const loaderSubtitle = document.getElementById("loaderSubtitle");
 
     // CFO State Variables
     let currentBalance = 5000;
@@ -26,17 +19,6 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Config Target Date
     const TARGET_DATE = new Date("2026-06-22T00:00:00");
-
-    // Loader Roast Scripts
-    const loadingRoasts = [
-        { title: "Analyzing intent...", subtitle: "Simulating runway collapse sequence" },
-        { title: "Cross-referencing metrics...", subtitle: "Evaluating standard young-adult behavior" },
-        { title: "Calculating decay...", subtitle: "Analyzing percentage of total net worth" },
-        { title: "Consulting models...", subtitle: "Translating disappointment into terminal output" },
-        { title: "Validating deduction...", subtitle: "Waiting for blockchain confirmation (just kidding)" },
-        { title: "Auditing ledger...", subtitle: "Checking who owes you money" }
-    ];
-    let loaderInterval = null;
 
     // Helpers
     const formatCurrency = (amount) => Number(amount).toLocaleString('en-IN');
@@ -55,11 +37,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const animateSpring = (startVal, endVal, onUpdate) => {
         let current = startVal;
         let velocity = 0;
-        const tension = 120; // Stiffness
-        const friction = 14; // Damping
+        const tension = 120;
+        const friction = 14;
         const mass = 1;
         let lastTime = performance.now();
-        let animationFrame;
 
         const update = (currentTime) => {
             const dt = Math.min((currentTime - lastTime) / 1000, 0.032);
@@ -71,14 +52,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
             onUpdate(Math.round(current));
 
-            // Stop if velocity is near zero and we are very close to target
             if (Math.abs(velocity) < 0.5 && Math.abs(endVal - current) < 0.5) {
                 onUpdate(endVal);
             } else {
-                animationFrame = requestAnimationFrame(update);
+                requestAnimationFrame(update);
             }
         };
-        animationFrame = requestAnimationFrame(update);
+        requestAnimationFrame(update);
     };
 
     const animateBalance = (startVal, endVal) => {
@@ -147,7 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <circle cx="12" cy="12" r="10"></circle>
                         <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" />
                     </svg>
-                    <span>System idle. Awaiting financial intent.</span>
+                    <span>System idle. Awaiting bank transactions.</span>
                 </div>`;
             return;
         }
@@ -291,44 +271,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // Submit Logic
-    expenseForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const text = expenseInput.value.trim();
-        if (!text) return;
-
-        thinkingLoader.classList.remove("hidden");
-        let roastIdx = 0;
-        loaderTitle.textContent = loadingRoasts[0].title;
-        loaderSubtitle.textContent = loadingRoasts[0].subtitle;
-        loaderInterval = setInterval(() => {
-            roastIdx = (roastIdx + 1) % loadingRoasts.length;
-            loaderTitle.textContent = loadingRoasts[roastIdx].title;
-            loaderSubtitle.textContent = loadingRoasts[roastIdx].subtitle;
-        }, 1200);
-
-        try {
-            const res = await fetch("/cfo-check", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ expense_text: text })
-            });
-
-            if (!res.ok) {
-                const errData = await res.json();
-                throw new Error(errData.detail || "Agent evaluation failed");
-            }
-
-            expenseInput.value = "";
-            await fetchState(true);
-        } catch (err) {
-            alert(`Execution Error: ${err.message}`);
-        } finally {
-            clearInterval(loaderInterval);
-            thinkingLoader.classList.add("hidden");
-        }
-    });
-
     // Reset Logic
     resetBtn.addEventListener("click", async () => {
         if (!confirm("Wipe entire ledger and reset to ₹5,000?")) return;
@@ -339,14 +281,6 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (err) {
             alert(`Reset Error: ${err.message}`);
         }
-    });
-
-    // Shortcuts
-    document.querySelectorAll(".shortcut-tag").forEach(tag => {
-        tag.addEventListener("click", () => {
-            expenseInput.value = tag.getAttribute("data-value");
-            expenseInput.focus();
-        });
     });
 
     // Bank Sync Status
@@ -375,6 +309,8 @@ document.addEventListener("DOMContentLoaded", () => {
     // Boot
     fetchState(false);
     fetchBankSyncStatus();
+    // Auto-refresh state every 30 seconds to pick up new bank syncs
+    setInterval(() => fetchState(true), 30000);
     // Refresh bank sync status every 60 seconds
     setInterval(fetchBankSyncStatus, 60000);
 });
