@@ -8,6 +8,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const owedBreakdownEl = document.getElementById("owedBreakdown");
     const runwayChartEl = document.getElementById("runwayChart");
     
+    // Liquid Assets DOM Elements
+    const liquidNavEl = document.getElementById("liquidNav");
+    const liquidSpendableValEl = document.getElementById("liquidSpendableVal");
+    const liquidCoreValEl = document.getElementById("liquidCoreVal");
+    
     const resetBtn = document.getElementById("resetBtn");
     const logsFeed = document.getElementById("logsFeed");
 
@@ -258,6 +263,13 @@ document.addEventListener("DOMContentLoaded", () => {
             currentBalance = state.current_balance;
             transactions = state.transactions || [];
             owedByState = state.owed_by || {};
+
+            // Update Liquid Assets
+            if (state.liquid_metrics) {
+                liquidNavEl.textContent = `₹${formatCurrency(state.liquid_metrics.nav)}`;
+                liquidSpendableValEl.textContent = `₹${formatCurrency(state.liquid_metrics.spendable)}`;
+                liquidCoreValEl.textContent = `₹${formatCurrency(state.liquid_metrics.core)}`;
+            }
 
             renderStats();
             renderLogs();

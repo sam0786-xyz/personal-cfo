@@ -226,21 +226,65 @@ def normalize_state(state):
         for name, amount in owed_by.items()
         if str(name).strip() and int(amount) > 0
     }
-    return {
+    
+    # Fractional Liquidity Engine (The 90% Rule)
+    # Default seed: Curie ICICI Prudential - ₹20,000
+    liquid_state = state.get("liquid_assets", {
+        "principal": 20000.0,
+        "stamp_duty_paid": False,
+        "last_accrual_date": datetime.now(IST).date().isoformat()
+    })
+    
+    state_changed = False
+    
+    # 1. Apply Stamp Duty exactly once (0.005%)
+    if not liquid_state.get("stamp_duty_paid", False):
+        liquid_state["principal"] -= (liquid_state["principal"] * 0.00005)
+        liquid_state["stamp_duty_paid"] = True
+        state_changed = True
+        
+    # 2. Accrue daily interest (7% APY)
+    last_date = datetime.fromisoformat(liquid_state.get("last_accrual_date")).date()
+    today = datetime.now(IST).date()
+    days_passed = (today - last_date).days
+    
+    if days_passed > 0:
+        daily_rate = 0.07 / 365.0
+        liquid_state["principal"] *= ((1 + daily_rate) ** days_passed)
+        liquid_state["last_accrual_date"] = today.isoformat()
+        state_changed = True
+        
+    # 3. Calculate Utilization
+    nav = liquid_state["principal"]
+    spendable = nav * 0.90
+    core = nav * 0.10
+    
+    normalized = {
         "current_balance": current_balance,
         "transactions": transactions,
         "owed_by": owed_by,
+        "liquid_assets": liquid_state,
+        "liquid_metrics": {
+            "nav": round(nav, 2),
+            "spendable": round(spendable, 2),
+            "core": round(core, 2)
+        },
         "updated_at": state.get("updated_at"),
     }
+    return normalized, state_changed
 
 def get_state():
     doc = doc_ref.get()
-    if doc.exists:
-        return normalize_state(doc.to_dict())
-    return normalize_state({"current_balance": DEFAULT_BALANCE, "transactions": [], "owed_by": {}})
+    raw_state = doc.to_dict() if doc.exists else {"current_balance": DEFAULT_BALANCE, "transactions": [], "owed_by": {}}
+    normalized, changed = normalize_state(raw_state)
+    if changed:
+        save_state(normalized)
+    return normalized
 
 def save_state(state):
     state["updated_at"] = datetime.now(IST).isoformat()
+    # Strip the runtime `_changed` flag if it accidentally got passed
+    if "_changed" in state: del state["_changed"]
     doc_ref.set(state)
 
 class ExpenseRequest(BaseModel):
@@ -270,9 +314,12 @@ async def healthz():
 
 @app.post("/cfo-reset")
 async def cfo_reset():
-    state = {"current_balance": DEFAULT_BALANCE, "transactions": [], "owed_by": {}}
-    save_state(state)
-    return {"status": "success", "message": "Runway reset to ₹5,000.", "state": state}
+    state = get_state()
+    new_state = {"current_balance": DEFAULT_BALANCE, "transactions": [], "owed_by": {}}
+    if "liquid_assets" in state:
+        new_state["liquid_assets"] = state["liquid_assets"]
+    save_state(new_state)
+    return {"status": "success", "message": "Runway reset to ₹5,000.", "state": new_state}
 
 @app.post("/cfo-check")
 async def cfo_check(request: ExpenseRequest):
@@ -282,7 +329,8 @@ async def cfo_check(request: ExpenseRequest):
     if client is None:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
 
-    state = get_state()
+    raw_state = doc_ref.get().to_dict() if doc_ref.get().exists else {}
+    state, _ = normalize_state(raw_state)
     current_balance = state.get("current_balance", DEFAULT_BALANCE)
     owed_by = state.get("owed_by", {})
     
@@ -308,7 +356,8 @@ async def cfo_check(request: ExpenseRequest):
         f"5. APPROVE_INTENT: If he ASKS to spend on goods/services for himself, extract amount into 'expense_deducted'.\n"
         f"6. LEND_MONEY: CRITICAL - If the transaction involves giving/lending money TO A SPECIFIC PERSON (e.g., 'Faizan', 'my brother'), you MUST choose LEND_MONEY, not Approve Intent. Extract amount into 'expense_deducted' and their name into 'person_name'.\n"
         f"7. DEBT_COLLECTED: CRITICAL - If a person returns/pays back money to him, choose DEBT_COLLECTED. Extract amount into 'funds_added' and their name into 'person_name'.\n"
-        f"8. QUERY_STATUS: If he asks for his balance or debts, output 0 for all amounts.\n\n"
+        f"8. QUERY_STATUS: If he asks for his balance or debts, output 0 for all amounts.\n"
+        f"9. MULTI-CURRENCY: If the expense is in a foreign currency (USD, AED, EUR), convert it to INR using rough math (1 USD=84 INR, 1 AED=23 INR, 1 EUR=90 INR) and ADD a 2% Forex Markup. Output the final INR amount. Example: '$10' -> 84 * 10 * 1.02 = 856 INR.\n\n"
         f"IMPORTANT: Output your response following the schema. If no person is involved, leave person_name empty."
     )
     

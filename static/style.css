@@ -850,3 +850,88 @@ svg {
         font-size: 0.9rem;
     }
 }
+
+/* ==========================================================================
+   LIQUID ASSETS WIDGET
+   ========================================================================== */
+.liquid-assets-widget {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.liquid-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.liquid-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--color-text-secondary);
+}
+
+.liquid-nav {
+    font-size: 1.25rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--color-text-primary);
+}
+
+.liquid-bar-container {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+
+.liquid-spendable {
+    background: var(--color-indigo);
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.liquid-core {
+    background: var(--color-crimson);
+    opacity: 0.8;
+    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.liquid-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.spendable-dot {
+    background: var(--color-indigo);
+    box-shadow: 0 0 5px var(--color-indigo);
+}
+
+.core-dot {
+    background: var(--color-crimson);
+}
+
+.accrued-item {
+    margin-left: auto;
+    font-weight: 500;
+}

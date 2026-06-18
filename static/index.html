@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260613">
+    <link rel="stylesheet" href="style.css?v=20260619">
 </head>
 <body>
     <!-- Background Ambient Glows -->
@@ -86,6 +86,32 @@
                     <!-- Dynamic debt breakdown injected here -->
                 </div>
 
+                <!-- Liquid Assets Widget -->
+                <div class="liquid-assets-widget">
+                    <div class="liquid-header">
+                        <span class="liquid-title">LIQUID RESERVES (CURIE / ICICI)</span>
+                        <span id="liquidNav" class="liquid-nav text-glow">₹20,000.00</span>
+                    </div>
+                    <div class="liquid-bar-container">
+                        <div id="liquidSpendableBar" class="liquid-spendable" style="width: 90%;"></div>
+                        <div id="liquidCoreBar" class="liquid-core" style="width: 10%;"></div>
+                    </div>
+                    <div class="liquid-legend">
+                        <div class="legend-item">
+                            <span class="dot spendable-dot"></span>
+                            <span>Spendable (90%): <strong id="liquidSpendableVal">₹18,000.00</strong></span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="dot core-dot"></span>
+                            <span>Core Reserve (10%): <strong id="liquidCoreVal">₹2,000.00</strong></span>
+                        </div>
+                        <div class="legend-item accrued-item">
+                            <span class="accrued-label">Daily Accrual:</span>
+                            <span class="accrued-val text-emerald">~7% APY</span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Runway Chart visualization -->
                 <div class="chart-container">
                     <svg id="runwayChart" viewBox="0 0 600 80" width="600" height="80" preserveAspectRatio="none">
@@ -132,6 +158,6 @@
         </main>
     </div>
 
-    <script src="app.js?v=20260613"></script>
+    <script src="app.js?v=20260619"></script>
 </body>
 </html>
