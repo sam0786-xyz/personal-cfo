@@ -259,6 +259,21 @@ def normalize_state(state):
     spendable = nav * 0.90
     core = nav * 0.10
     
+    # Dead Capital Radar (Opportunity Cost)
+    dead_capital_opportunity_cost = round((current_balance * 0.07) / 365.0, 2)
+    
+    # Synthetic Balance Sheet
+    synthetic_state = state.get("synthetic_assets", {
+        "axis_edge_points": 25000,
+        "github_credits_usd": 200000,
+    })
+    
+    synthetic_metrics = {
+        "axis_edge_inr": int(synthetic_state.get("axis_edge_points", 0) * 0.20),
+        "github_credits_inr": int(synthetic_state.get("github_credits_usd", 0) * 84)
+    }
+    synthetic_metrics["total_cash_equivalent"] = synthetic_metrics["axis_edge_inr"] + synthetic_metrics["github_credits_inr"]
+    
     normalized = {
         "current_balance": current_balance,
         "transactions": transactions,
@@ -269,6 +284,9 @@ def normalize_state(state):
             "spendable": round(spendable, 2),
             "core": round(core, 2)
         },
+        "dead_capital_opportunity_cost": dead_capital_opportunity_cost,
+        "synthetic_assets": synthetic_state,
+        "synthetic_metrics": synthetic_metrics,
         "updated_at": state.get("updated_at"),
     }
     return normalized, state_changed
@@ -357,8 +375,10 @@ async def cfo_check(request: ExpenseRequest):
         f"6. LEND_MONEY: CRITICAL - If the transaction involves giving/lending money TO A SPECIFIC PERSON (e.g., 'Faizan', 'my brother'), you MUST choose LEND_MONEY, not Approve Intent. Extract amount into 'expense_deducted' and their name into 'person_name'.\n"
         f"7. DEBT_COLLECTED: CRITICAL - If a person returns/pays back money to him, choose DEBT_COLLECTED. Extract amount into 'funds_added' and their name into 'person_name'.\n"
         f"8. QUERY_STATUS: If he asks for his balance or debts, output 0 for all amounts.\n"
-        f"9. MULTI-CURRENCY: If the expense is in a foreign currency (USD, AED, EUR), convert it to INR using rough math (1 USD=84 INR, 1 AED=23 INR, 1 EUR=90 INR) and ADD a 2% Forex Markup. Output the final INR amount. Example: '$10' -> 84 * 10 * 1.02 = 856 INR.\n\n"
-        f"IMPORTANT: Output your response following the schema. If no person is involved, leave person_name empty."
+        f"9. MULTI-CURRENCY: If the expense is in a foreign currency (USD, AED, EUR), convert it to INR using rough math (1 USD=84 INR, 1 AED=23 INR, 1 EUR=90 INR) and ADD a 2% Forex Markup. Output the final INR amount. Example: '$10' -> 84 * 10 * 1.02 = 856 INR.\n"
+        f"10. SIMULATE_CONTRACT: If he asks to simulate a foreign inbound contract (e.g., 'Simulate 5000 AED'), choose SIMULATE_CONTRACT, extract the raw number into 'funds_added', and put the currency name (e.g., 'AED') in 'person_name'.\n"
+        f"11. UPDATE_SYNTHETIC: If he earns/spends alternative assets (e.g., 'got 500 axis edge points', 'used 10 github credits'), choose UPDATE_SYNTHETIC, extract amount into 'funds_added' (for gains) or 'expense_deducted' (for spends), and put the asset name in 'person_name'.\n\n"
+        f"IMPORTANT: Output your response following the schema. If no person/currency/asset is involved, leave person_name empty."
     )
     
     try:
@@ -430,6 +450,41 @@ async def cfo_check(request: ExpenseRequest):
         # Handle Rejections and Queries (Zero out expense)
         if action in ["REJECT_INTENT", "QUERY_STATUS"]:
             expense = 0
+            
+        # HANDLE SIMULATE CONTRACT (CROSS-BORDER FIREWALL)
+        if action == "SIMULATE_CONTRACT" and funds > 0:
+            expense = 0
+            currency = person if person else "AED"
+            rate = 23 if "AED" in currency.upper() else 84  # Quick heuristic
+            gross_inr = funds * rate
+            stripe_net = int(gross_inr * 0.97 - 1000)
+            skydo_net = int(gross_inr - 1200)
+            swift_net = int(gross_inr * 0.98 - 2500)
+            
+            decision["message"] = (
+                f"Contract Simulation: {funds} {currency} (Gross: ₹{gross_inr})\n"
+                f"• Stripe: ₹{stripe_net}\n"
+                f"• Direct SWIFT: ₹{swift_net}\n"
+                f"• Skydo: ₹{skydo_net} (RECOMMENDED)\n"
+                f"Use Skydo to save ₹{skydo_net - stripe_net} vs Stripe."
+            )
+            # Zero out funds so it doesn't inflate runway balance during simulation
+            funds = 0
+            
+        # HANDLE SYNTHETIC ASSETS
+        if action == "UPDATE_SYNTHETIC":
+            asset = person.lower()
+            key = "axis_edge_points" if "edge" in asset or "axis" in asset else "github_credits_usd"
+            current_synthetic = state.get("synthetic_assets", {"axis_edge_points": 25000, "github_credits_usd": 200000})
+            if funds > 0:
+                current_synthetic[key] = current_synthetic.get(key, 0) + funds
+            elif expense > 0:
+                current_synthetic[key] = max(0, current_synthetic.get(key, 0) - expense)
+            state["synthetic_assets"] = current_synthetic
+            
+            decision["message"] = f"Logged {funds or expense} to {key}. Total is now {current_synthetic[key]}."
+            expense = 0 # Don't deduct from cash
+            funds = 0   # Don't add to cash
             
         # Overdraft Protection
         if expense > current_balance and action not in ["QUERY_STATUS"]:

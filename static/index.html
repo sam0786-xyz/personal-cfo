@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260619">
+    <link rel="stylesheet" href="style.css?v=20260619_2">
 </head>
 <body>
     <!-- Background Ambient Glows -->
@@ -112,6 +112,36 @@
                     </div>
                 </div>
 
+                <!-- Dead Capital Radar -->
+                <div id="deadCapitalWidget" class="dead-capital-widget" style="display: none;">
+                    <div class="dead-header">
+                        <span class="dead-title">DEAD CAPITAL RADAR</span>
+                        <span class="dead-icon pulse-crimson">⚠️</span>
+                    </div>
+                    <div class="dead-body">
+                        <span class="dead-text">You have <strong id="deadCapitalVal" class="text-crimson">₹0</strong> sitting idle.</span>
+                        <span class="dead-subtext">You are bleeding <strong id="deadCapitalBleed" class="text-crimson">₹0/day</strong> of passive income vs 7% APY. Sweep to Curie immediately.</span>
+                    </div>
+                </div>
+
+                <!-- Synthetic Assets Widget -->
+                <div class="synthetic-assets-widget">
+                    <div class="liquid-header">
+                        <span class="liquid-title">SYNTHETIC ASSETS (CASH EQUIV)</span>
+                        <span id="syntheticNav" class="liquid-nav text-indigo">₹0</span>
+                    </div>
+                    <div class="synthetic-grid">
+                        <div class="synthetic-item">
+                            <span class="synthetic-label">Axis EDGE</span>
+                            <span id="syntheticAxis" class="synthetic-val text-glow">0 pts</span>
+                        </div>
+                        <div class="synthetic-item">
+                            <span class="synthetic-label">GitHub Credits</span>
+                            <span id="syntheticGithub" class="synthetic-val text-glow">$0</span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Runway Chart visualization -->
                 <div class="chart-container">
                     <svg id="runwayChart" viewBox="0 0 600 80" width="600" height="80" preserveAspectRatio="none">
@@ -158,6 +188,6 @@
         </main>
     </div>
 
-    <script src="app.js?v=20260619"></script>
+    <script src="app.js?v=20260619_2"></script>
 </body>
 </html>

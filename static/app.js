@@ -13,6 +13,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const liquidSpendableValEl = document.getElementById("liquidSpendableVal");
     const liquidCoreValEl = document.getElementById("liquidCoreVal");
     
+    // Dead Capital DOM
+    const deadCapitalWidget = document.getElementById("deadCapitalWidget");
+    const deadCapitalVal = document.getElementById("deadCapitalVal");
+    const deadCapitalBleed = document.getElementById("deadCapitalBleed");
+
+    // Synthetic Assets DOM
+    const syntheticNav = document.getElementById("syntheticNav");
+    const syntheticAxis = document.getElementById("syntheticAxis");
+    const syntheticGithub = document.getElementById("syntheticGithub");
+    
     const resetBtn = document.getElementById("resetBtn");
     const logsFeed = document.getElementById("logsFeed");
 
@@ -87,6 +97,8 @@ document.addEventListener("DOMContentLoaded", () => {
             case "APPROVE_INTENT": return { class: "badge-approved", text: `-₹${formatCurrency(tx.approved_amount)} Approved`, icon: "✓" };
             case "REJECT_INTENT": return { class: "badge-rejected", text: "Rejected (₹0)", icon: "✕" };
             case "QUERY_STATUS": return { class: "badge-query", text: "Status Query", icon: "ℹ" };
+            case "SIMULATE_CONTRACT": return { class: "badge-approved", text: `Simulator`, icon: "🌍" };
+            case "UPDATE_SYNTHETIC": return { class: "badge-bank-credit", text: `Asset Sync`, icon: "✨" };
             case "BANK_DEBIT": return { class: "badge-bank-debit", text: `-₹${formatCurrency(tx.approved_amount)} Bank Debit${channel}`, icon: "🏦" };
             case "BANK_CREDIT": return { class: "badge-bank-credit", text: `+₹${formatCurrency(tx.funds_added)} Bank Credit${channel}`, icon: "🏦" };
             default: return { class: "badge-rejected", text: `Unknown`, icon: "?" };
@@ -269,6 +281,22 @@ document.addEventListener("DOMContentLoaded", () => {
                 liquidNavEl.textContent = `₹${formatCurrency(state.liquid_metrics.nav)}`;
                 liquidSpendableValEl.textContent = `₹${formatCurrency(state.liquid_metrics.spendable)}`;
                 liquidCoreValEl.textContent = `₹${formatCurrency(state.liquid_metrics.core)}`;
+            }
+
+            // Update Dead Capital Radar
+            if (state.dead_capital_opportunity_cost && currentBalance > 2000) {
+                deadCapitalWidget.style.display = "block";
+                deadCapitalVal.textContent = `₹${formatCurrency(currentBalance)}`;
+                deadCapitalBleed.textContent = `₹${state.dead_capital_opportunity_cost}/day`;
+            } else {
+                deadCapitalWidget.style.display = "none";
+            }
+
+            // Update Synthetic Assets
+            if (state.synthetic_metrics && state.synthetic_assets) {
+                syntheticNav.textContent = `₹${formatCurrency(state.synthetic_metrics.total_cash_equivalent)}`;
+                syntheticAxis.textContent = `${state.synthetic_assets.axis_edge_points || 0} pts`;
+                syntheticGithub.textContent = `$${formatCurrency(state.synthetic_assets.github_credits_usd || 0)}`;
             }
 
             renderStats();
