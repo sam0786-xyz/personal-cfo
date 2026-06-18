@@ -22,6 +22,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const syntheticNav = document.getElementById("syntheticNav");
     const syntheticAxis = document.getElementById("syntheticAxis");
     const syntheticGithub = document.getElementById("syntheticGithub");
+
+    // API Burn DOM
+    const apiBurnWidget = document.getElementById("apiBurnWidget");
+    const apiRunwayDays = document.getElementById("apiRunwayDays");
+    const apiBurnRate = document.getElementById("apiBurnRate");
     
     const resetBtn = document.getElementById("resetBtn");
     const logsFeed = document.getElementById("logsFeed");
@@ -99,6 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
             case "QUERY_STATUS": return { class: "badge-query", text: "Status Query", icon: "ℹ" };
             case "SIMULATE_CONTRACT": return { class: "badge-approved", text: `Simulator`, icon: "🌍" };
             case "UPDATE_SYNTHETIC": return { class: "badge-bank-credit", text: `Asset Sync`, icon: "✨" };
+            case "REROUTE_TO_SYNTHETIC": return { class: "badge-rejected", text: `Intercepted`, icon: "🛑" };
             case "BANK_DEBIT": return { class: "badge-bank-debit", text: `-₹${formatCurrency(tx.approved_amount)} Bank Debit${channel}`, icon: "🏦" };
             case "BANK_CREDIT": return { class: "badge-bank-credit", text: `+₹${formatCurrency(tx.funds_added)} Bank Credit${channel}`, icon: "🏦" };
             default: return { class: "badge-rejected", text: `Unknown`, icon: "?" };
@@ -297,6 +303,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 syntheticNav.textContent = `₹${formatCurrency(state.synthetic_metrics.total_cash_equivalent)}`;
                 syntheticAxis.textContent = `${state.synthetic_assets.axis_edge_points || 0} pts`;
                 syntheticGithub.textContent = `$${formatCurrency(state.synthetic_assets.github_credits_usd || 0)}`;
+            }
+
+            // Update API Burn Radar
+            if (state.gcp_billing) {
+                const daysLeft = state.gcp_billing.vertex_runway_days;
+                if (daysLeft >= 0 && daysLeft < 30) {
+                    apiBurnWidget.style.display = "block";
+                    apiRunwayDays.textContent = `${daysLeft} days`;
+                    apiBurnRate.textContent = `$${state.gcp_billing.vertex_daily_burn_usd}/day`;
+                } else {
+                    apiBurnWidget.style.display = "none";
+                }
+            } else {
+                apiBurnWidget.style.display = "none";
             }
 
             renderStats();

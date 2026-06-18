@@ -274,6 +274,15 @@ def normalize_state(state):
     }
     synthetic_metrics["total_cash_equivalent"] = synthetic_metrics["axis_edge_inr"] + synthetic_metrics["github_credits_inr"]
     
+    # API Burn Radar (GCP Billing)
+    gcp_billing = state.get("gcp_billing", {
+        "vertex_daily_burn_usd": 150.0  # Default daily burn
+    })
+    vertex_runway_days = -1
+    if gcp_billing["vertex_daily_burn_usd"] > 0:
+        vertex_runway_days = int(synthetic_state.get("github_credits_usd", 0) / gcp_billing["vertex_daily_burn_usd"])
+    gcp_billing["vertex_runway_days"] = vertex_runway_days
+    
     normalized = {
         "current_balance": current_balance,
         "transactions": transactions,
@@ -287,6 +296,7 @@ def normalize_state(state):
         "dead_capital_opportunity_cost": dead_capital_opportunity_cost,
         "synthetic_assets": synthetic_state,
         "synthetic_metrics": synthetic_metrics,
+        "gcp_billing": gcp_billing,
         "updated_at": state.get("updated_at"),
     }
     return normalized, state_changed
@@ -339,6 +349,18 @@ async def cfo_reset():
     save_state(new_state)
     return {"status": "success", "message": "Runway reset to ₹5,000.", "state": new_state}
 
+class BillingAlert(BaseModel):
+    daily_burn_usd: float
+
+@app.post("/gcp-billing-webhook")
+async def gcp_billing_webhook(alert: BillingAlert):
+    state = get_state()
+    billing = state.get("gcp_billing", {})
+    billing["vertex_daily_burn_usd"] = alert.daily_burn_usd
+    state["gcp_billing"] = billing
+    save_state(state)
+    return {"status": "success", "new_burn": alert.daily_burn_usd}
+
 @app.post("/cfo-check")
 async def cfo_check(request: ExpenseRequest):
     prompt_text = request.prompt_text()
@@ -360,11 +382,15 @@ async def cfo_check(request: ExpenseRequest):
     debt_string = ", ".join([f"{name} owes ₹{amt}" for name, amt in owed_by.items()])
     if not debt_string: debt_string = "Nobody owes him money."
     
+    synthetic_str = ", ".join([f"{k}: {v}" for k, v in state.get("synthetic_assets", {}).items()])
+    if not synthetic_str: synthetic_str = "None"
+    
     # THE BULLETPROOF AGENT PROMPT
     system_instruction = (
         f"You are a lightning-fast autonomous financial agent for a 22-year-old AI engineer.\n"
         f"CURRENT STATE:\n- Net worth until June 22nd ({days_left} days left): ₹{current_balance}\n"
-        f"- Debts (Money owed to him): {debt_string}\n\n"
+        f"- Debts (Money owed to him): {debt_string}\n"
+        f"- Synthetic Assets (Points/Credits): {synthetic_str}\n\n"
         f"CRITICAL RULE: DO NOT DO ANY MATH. DO NOT ADD OR SUBTRACT. Only extract the EXACT raw numbers stated by the user.\n"
         f"YOUR CAPABILITIES:\n"
         f"1. ADD_FUNDS: If he explicitly receives extra money, extract the exact amount into 'funds_added'.\n"
@@ -377,7 +403,8 @@ async def cfo_check(request: ExpenseRequest):
         f"8. QUERY_STATUS: If he asks for his balance or debts, output 0 for all amounts.\n"
         f"9. MULTI-CURRENCY: If the expense is in a foreign currency (USD, AED, EUR), convert it to INR using rough math (1 USD=84 INR, 1 AED=23 INR, 1 EUR=90 INR) and ADD a 2% Forex Markup. Output the final INR amount. Example: '$10' -> 84 * 10 * 1.02 = 856 INR.\n"
         f"10. SIMULATE_CONTRACT: If he asks to simulate a foreign inbound contract (e.g., 'Simulate 5000 AED'), choose SIMULATE_CONTRACT, extract the raw number into 'funds_added', and put the currency name (e.g., 'AED') in 'person_name'.\n"
-        f"11. UPDATE_SYNTHETIC: If he earns/spends alternative assets (e.g., 'got 500 axis edge points', 'used 10 github credits'), choose UPDATE_SYNTHETIC, extract amount into 'funds_added' (for gains) or 'expense_deducted' (for spends), and put the asset name in 'person_name'.\n\n"
+        f"11. REROUTE_TO_SYNTHETIC: CRITICAL - If he attempts to spend cash on travel (cabs, flights, hotels) AND he has Axis Edge Points or similar travel assets, you MUST intercept the transaction. Choose REROUTE_TO_SYNTHETIC, set expense_deducted=0, and command him to use points instead.\n"
+        f"12. UPDATE_SYNTHETIC: If he earns/spends alternative assets (e.g., 'got 500 axis edge points', 'used 10 github credits'), choose UPDATE_SYNTHETIC, extract amount into 'funds_added' (for gains) or 'expense_deducted' (for spends), and put the asset name in 'person_name'.\n\n"
         f"IMPORTANT: Output your response following the schema. If no person/currency/asset is involved, leave person_name empty."
     )
     
@@ -463,10 +490,10 @@ async def cfo_check(request: ExpenseRequest):
             
             decision["message"] = (
                 f"Contract Simulation: {funds} {currency} (Gross: ₹{gross_inr})\n"
-                f"• Stripe: ₹{stripe_net}\n"
-                f"• Direct SWIFT: ₹{swift_net}\n"
-                f"• Skydo: ₹{skydo_net} (RECOMMENDED)\n"
-                f"Use Skydo to save ₹{skydo_net - stripe_net} vs Stripe."
+                f"• Stripe: ₹{stripe_net} (Warning: No native FIRC. +₹500 AD Bank Fee & 7 day delay)\n"
+                f"• Direct SWIFT: ₹{swift_net} (Manual FIRC tracking required)\n"
+                f"• Skydo: ₹{skydo_net} (RECOMMENDED. FIRA Automated. 0% GST LUT Compliance)\n"
+                f"Use Skydo to save ₹{skydo_net - stripe_net} vs Stripe and maintain absolute tax compliance."
             )
             # Zero out funds so it doesn't inflate runway balance during simulation
             funds = 0
@@ -485,6 +512,12 @@ async def cfo_check(request: ExpenseRequest):
             decision["message"] = f"Logged {funds or expense} to {key}. Total is now {current_synthetic[key]}."
             expense = 0 # Don't deduct from cash
             funds = 0   # Don't add to cash
+            
+        # HANDLE SYNTHETIC ROUTING
+        if action == "REROUTE_TO_SYNTHETIC":
+            expense = 0
+            points = state.get("synthetic_assets", {}).get("axis_edge_points", 0)
+            decision["message"] = f"🛑 HALT. Cash burn blocked. You have {points} Axis points. Redeem your travel voucher right now. Liquid runway preserved."
             
         # Overdraft Protection
         if expense > current_balance and action not in ["QUERY_STATUS"]:
