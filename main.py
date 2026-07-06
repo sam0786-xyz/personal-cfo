@@ -85,7 +85,7 @@ CATEGORIES = {
 }
 
 SYSTEM_MERCHANT_RULES = [
-    ("Food", "Cafe/Restaurant", ["restaurant", "cafe", "coffee", "starbucks", "tea", "chai", "snack", "food", "zomato", "swiggy", "hotel", "dhaba", "bakery", "juice", "biryani", "pizza", "kitchen", "grocery", "mart"]),
+    ("Food", "Cafe/Restaurant", ["uber eats", "restaurant", "cafe", "coffee", "starbucks", "tea", "chai", "snack", "food", "zomato", "swiggy", "hotel", "dhaba", "bakery", "juice", "biryani", "pizza", "kitchen", "grocery", "mart"]),
     ("Transport", "Mobility", ["metro", "uber", "ola", "rapido", "namma yatri", "auto", "cab", "taxi", "fuel", "petrol", "diesel", "parking", "toll", "irctc", "bus"]),
     ("Shopping", "Retail", ["amazon", "flipkart", "myntra", "nykaa", "mall", "store", "retail", "fashion", "electronics", "croma", "reliance digital"]),
     ("Business/Tools", "Software", ["google cloud", "gcp", "github", "openai", "anthropic", "vercel", "render", "aws", "digitalocean", "cursor", "notion", "slack", "api"]),
@@ -96,6 +96,12 @@ SYSTEM_MERCHANT_RULES = [
     ("Education", "Learning", ["course", "udemy", "coursera", "edx", "college", "university", "book", "exam"]),
     ("Fees/Charges", "Bank Fees", ["charges", "fee", "penalty", "interest", "gst", "annual fee"]),
 ]
+
+AMBIGUOUS_MERCHANT_HINTS = {
+    "uber": ["eats", "food", "restaurant", "cafe", "grocery", "kitchen"],
+    "hotel": ["restaurant", "stay", "room", "booking"],
+    "mart": ["grocery", "fashion", "electronics", "medical"],
+}
 
 UPI_VPA_RE = re.compile(r"\b[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9._-]{1,64}\b")
 
@@ -424,6 +430,9 @@ def apply_keyword_rule(transaction: dict) -> dict | None:
         transaction.get("merchant_normalized", ""),
         transaction.get("upi_vpa", ""),
     ]).lower()
+    for merchant_hint, conflict_hints in AMBIGUOUS_MERCHANT_HINTS.items():
+        if merchant_hint in haystack and sum(1 for hint in conflict_hints if hint in haystack) > 0:
+            return None
     for category, subcategory, keywords in SYSTEM_MERCHANT_RULES:
         if any(keyword in haystack for keyword in keywords):
             return {
@@ -482,12 +491,15 @@ def classify_with_llm(transaction: dict) -> dict | None:
         "payee_normalized": transaction.get("payee_normalized"),
         "upi_vpa": transaction.get("upi_vpa"),
         "upi_handle": transaction.get("upi_handle"),
+        "classification_context": "Minimal context only. If merchant text contains conflicting signals such as Uber plus food/eats, resolve from the text if confident.",
     }
     system_prompt = (
         "Classify this Indian payment transaction. Use only the provided structured fields. "
         "Do not infer from location, calendar, screenshots, or any unavailable context. "
         f"Category must be one of: {', '.join(sorted(CATEGORIES))}. "
-        "For generic person-to-person UPI or ambiguous QR payments, choose Unknown or Transfer; never force Food/Shopping."
+        "For generic person-to-person UPI or ambiguous QR payments, choose Unknown or Transfer; never force Food/Shopping. "
+        "If a known brand has multiple meanings, such as Uber rides vs Uber Eats, use the food/ride words in the structured fields. "
+        "Set confidence below 0.78 when the fields are not enough; those will go to user review."
     )
     try:
         response = client.models.generate_content(
