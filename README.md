@@ -191,6 +191,9 @@ cd personal-cfo
 # .env (local development)
 GEMINI_API_KEY=your_api_key
 GCP_PROJECT=your_project_id
+CFO_ACCESS_TOKEN=long_random_private_dashboard_token
+# Optional local-only bypass:
+# CFO_AUTH_DISABLED=true
 ```
 
 ### Step 3: Local Development
@@ -250,7 +253,8 @@ In Gmail Settings → Filters:
 #### 4h. Deploy & Activate
 ```bash
 gcloud run deploy personal-cfo --source . --region us-central1 --allow-unauthenticated --min-instances 1
-curl -X POST https://your-domain.com/gmail-watch
+curl -X POST https://your-domain.com/gmail-watch \
+    -H "Authorization: Bearer $CFO_ACCESS_TOKEN"
 ```
 
 #### 4i. Auto-Renewal Scheduler
@@ -258,7 +262,8 @@ curl -X POST https://your-domain.com/gmail-watch
 gcloud scheduler jobs create http renew-gmail-watch \
     --schedule="0 3 */3 * *" \
     --uri="https://your-domain.com/gmail-watch" \
-    --http-method=POST
+    --http-method=POST \
+    --headers="Authorization=Bearer $CFO_ACCESS_TOKEN"
 ```
 
 </details>
@@ -272,7 +277,7 @@ Map your live server to the iPhone Action Button for **instant, anywhere-in-the-
 | Shortcut Block | Configuration |
 |:---|:---|
 | **Ask for Input** | Prompt: *"What do you want to buy?"* |
-| **Get Contents of URL** | URL: `https://cfo.sam18.xyz/cfo-check` · Method: **POST** · Headers: `Content-Type: application/json` · Body: `{"expense_text": "Provided Input"}` |
+| **Get Contents of URL** | URL: `https://cfo.sam18.xyz/cfo-check` · Method: **POST** · Headers: `Content-Type: application/json`, `Authorization: Bearer YOUR_CFO_ACCESS_TOKEN` · Body: `{"expense_text": "Provided Input"}` |
 | **Get Dictionary from** | Input: `Contents of URL` |
 | **Get Value for Key** | Key: `message` in `Dictionary` |
 | **Speak** | Input: `Dictionary Value` |
@@ -285,14 +290,22 @@ Map your live server to the iPhone Action Button for **instant, anywhere-in-the-
 
 | Method | Endpoint | Description |
 |:---:|:---|:---|
-| `GET` | `/` | Serves the dashboard |
-| `POST` | `/cfo-check` | Intent tracker — voice/text spending check |
-| `GET` | `/state` | Returns current balance, transactions, debts |
-| `POST` | `/reset` | Resets runway balance to ₹5,000 |
+| `GET` | `/` | Public-safe project page until private access is unlocked |
+| `GET` | `/public-profile` | Public project metadata with no personal finance data |
+| `POST` | `/auth/session` | Creates a private dashboard session from `CFO_ACCESS_TOKEN` |
+| `GET` | `/cfo-state` | Private balance, transactions, debts, classification rules |
+| `POST` | `/cfo-check` | Private intent tracker — voice/text spending check |
+| `POST` | `/cfo-reset` | Private reset for runway balance and audit log |
 | `POST` | `/gmail-webhook` | Receives Pub/Sub push notifications |
-| `POST` | `/gmail-watch` | Registers/renews Gmail push notifications |
-| `GET` | `/gmail-status` | Returns bank sync status |
-| `POST` | `/gmail-set-label` | Configures the Gmail label filter ID |
+| `POST` | `/gmail-watch` | Private register/renew Gmail push notifications |
+| `GET` | `/gmail-status` | Private bank sync status |
+| `POST` | `/gmail-set-label` | Private Gmail label filter ID setup |
+| `GET` | `/transactions/review` | Private ambiguous UPI transactions needing classification |
+| `POST` | `/transactions/{id}/classify` | Private category correction and learned rule creation |
+| `GET` | `/merchant-rules` | Private learned/manual merchant classification rules |
+| `POST` | `/merchant-rules` | Private merchant classification rule creation |
+
+Private endpoints accept `Authorization: Bearer $CFO_ACCESS_TOKEN`, `X-CFO-Token: $CFO_ACCESS_TOKEN`, the unlock cookie, or `?token=` for one-time dashboard unlock. Do not share private URLs with the token in them.
 
 ---
 

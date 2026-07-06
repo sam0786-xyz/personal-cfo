@@ -19,7 +19,47 @@
     <!-- Background Noise Texture -->
     <div class="noise-overlay"></div>
 
-    <div class="app-container">
+    <div id="publicShell" class="app-container public-shell" hidden>
+        <header class="app-header">
+            <div class="logo-area">
+                <svg class="logo-icon" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                </svg>
+                <div class="logo-text">
+                    <h1>AGENT<span>CFO</span></h1>
+                </div>
+            </div>
+            <span class="status-pill bank-sync-pill">Private Data Locked</span>
+        </header>
+
+        <main class="dashboard-grid">
+            <section class="glass-panel hero-span public-hero">
+                <div class="hud-label">PRIVATE AI FINANCE COCKPIT</div>
+                <h2 id="publicTitle">AgentCFO</h2>
+                <p id="publicTagline">A private AI finance cockpit that turns messy bank alerts into decisions, runway, and action.</p>
+                <p id="publicPrivacy" class="public-note">Live balances, transactions, debts, bank sync status, and personal audit logs are private.</p>
+                <form id="unlockForm" class="unlock-form">
+                    <input id="unlockToken" type="password" autocomplete="current-password" placeholder="Private access token">
+                    <button class="btn btn-primary" type="submit">Unlock</button>
+                </form>
+                <div id="unlockError" class="form-error" hidden></div>
+            </section>
+
+            <section class="glass-panel hero-span">
+                <div class="section-header">
+                    <div class="icon-wrapper bg-indigo-muted">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--color-indigo)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 19V5M4 19h16M8 16v-5M12 16V8M16 16v-3" />
+                        </svg>
+                    </div>
+                    <h2>What This Shows Publicly</h2>
+                </div>
+                <div id="publicActivity" class="public-activity"></div>
+            </section>
+        </main>
+    </div>
+
+    <div id="privateApp" class="app-container" hidden>
         <!-- Top Navbar -->
         <header class="app-header">
             <div class="logo-area">
@@ -170,6 +210,38 @@
                         <!-- Chart paths injected via JS -->
                     </svg>
                 </div>
+            </section>
+
+            <!-- Private: UPI Classification Workbench -->
+            <section class="glass-panel hero-span">
+                <div class="section-header">
+                    <div class="icon-wrapper bg-indigo-muted">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--color-indigo)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 7h18M6 11h12M8 15h8M10 19h4" />
+                        </svg>
+                    </div>
+                    <h2>UPI Classification</h2>
+                </div>
+
+                <div class="cfo-panels">
+                    <div class="cfo-panel">
+                        <div class="panel-title">Category Spend</div>
+                        <div id="categorySpend" class="category-list"></div>
+                    </div>
+                    <div class="cfo-panel">
+                        <div class="panel-title">Learned Vendors</div>
+                        <div id="learnedRules" class="rule-list"></div>
+                    </div>
+                </div>
+
+                <div class="review-header">
+                    <div>
+                        <div class="panel-title">Needs Review</div>
+                        <p class="section-desc">Ambiguous UPI QR payments are held here until you teach the classifier once.</p>
+                    </div>
+                    <span id="reviewCount" class="badge badge-query">0 open</span>
+                </div>
+                <div id="reviewList" class="review-list"></div>
             </section>
 
             <!-- Full Width: Live Audit Feed -->

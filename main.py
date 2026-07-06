@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -12,6 +12,8 @@ import os
 import base64
 import logging
 import re
+import hmac
+import hashlib
 from google.cloud import firestore
 from google.cloud import secretmanager
 from google.oauth2.credentials import Credentials
@@ -61,6 +63,66 @@ TARGET_DATE = datetime(2026, 6, 22, tzinfo=IST)
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "gen-lang-client-0592771092")
 AXIS_BANK_SENDER = "alerts@axis.bank.in"
+CFO_ACCESS_TOKEN = os.environ.get("CFO_ACCESS_TOKEN")
+CFO_AUTH_DISABLED = os.environ.get("CFO_AUTH_DISABLED", "").lower() in {"1", "true", "yes"}
+
+CATEGORIES = {
+    "Food",
+    "Transport",
+    "Shopping",
+    "Rent/Housing",
+    "Utilities",
+    "Subscriptions",
+    "Business/Tools",
+    "Travel",
+    "Healthcare",
+    "Education",
+    "Income",
+    "Transfer",
+    "Refund",
+    "Fees/Charges",
+    "Unknown",
+}
+
+SYSTEM_MERCHANT_RULES = [
+    ("Food", "Cafe/Restaurant", ["restaurant", "cafe", "coffee", "starbucks", "tea", "chai", "snack", "food", "zomato", "swiggy", "hotel", "dhaba", "bakery", "juice", "biryani", "pizza", "kitchen", "grocery", "mart"]),
+    ("Transport", "Mobility", ["metro", "uber", "ola", "rapido", "namma yatri", "auto", "cab", "taxi", "fuel", "petrol", "diesel", "parking", "toll", "irctc", "bus"]),
+    ("Shopping", "Retail", ["amazon", "flipkart", "myntra", "nykaa", "mall", "store", "retail", "fashion", "electronics", "croma", "reliance digital"]),
+    ("Business/Tools", "Software", ["google cloud", "gcp", "github", "openai", "anthropic", "vercel", "render", "aws", "digitalocean", "cursor", "notion", "slack", "api"]),
+    ("Subscriptions", "Recurring", ["netflix", "spotify", "youtube", "prime", "subscription", "autopay", "mandate", "recurring"]),
+    ("Utilities", "Bills", ["electricity", "water", "broadband", "wifi", "airtel", "jio", "vi ", "bsnl", "gas", "bill"]),
+    ("Travel", "Travel", ["flight", "airlines", "indigo", "air india", "vistara", "akasa", "hotel booking", "makemytrip", "goibibo", "booking.com"]),
+    ("Healthcare", "Medical", ["pharmacy", "apollo", "medical", "hospital", "clinic", "doctor", "diagnostic", "pathlab"]),
+    ("Education", "Learning", ["course", "udemy", "coursera", "edx", "college", "university", "book", "exam"]),
+    ("Fees/Charges", "Bank Fees", ["charges", "fee", "penalty", "interest", "gst", "annual fee"]),
+]
+
+UPI_VPA_RE = re.compile(r"\b[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9._-]{1,64}\b")
+
+def _extract_access_token(request: Request) -> str:
+    """Read private dashboard token from standard places."""
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+    return (
+        request.headers.get("x-cfo-token")
+        or request.query_params.get("token")
+        or request.cookies.get("cfo_access_token")
+        or ""
+    ).strip()
+
+def require_private_access(request: Request):
+    """Protect personal finance data from public resume visitors."""
+    if CFO_AUTH_DISABLED:
+        return
+    if not CFO_ACCESS_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="Private CFO access is not configured. Set CFO_ACCESS_TOKEN or CFO_AUTH_DISABLED=true for local development.",
+        )
+    supplied_token = _extract_access_token(request)
+    if not supplied_token or not hmac.compare_digest(supplied_token, CFO_ACCESS_TOKEN):
+        raise HTTPException(status_code=401, detail="Private CFO access required.")
 
 # ==========================================================================
 #  GMAIL GROUND TRUTH PIPELINE — 3-LAYER OTP DEFENSE
@@ -144,6 +206,11 @@ class BankTransaction(BaseModel):
     merchant: str
     channel: str    # UPI, NEFT, IMPS, ATM, CARD, AUTO_DEBIT, OTHER
     txn_ref: str
+    payee_raw: str = ""
+    payee_normalized: str = ""
+    upi_vpa: str = ""
+    upi_handle: str = ""
+    direction: str = ""  # OUTBOUND or INBOUND
 
 def parse_bank_email(body_text: str) -> dict | None:
     """Use Gemini to extract structured transaction data from a bank email."""
@@ -157,8 +224,13 @@ def parse_bank_email(body_text: str) -> dict | None:
         "- type: 'DEBIT' if money was taken out, 'CREDIT' if money was received/added\n"
         "- merchant: The merchant, beneficiary, or sender name\n"
         "- channel: The payment channel — one of: UPI, NEFT, IMPS, ATM, CARD, AUTO_DEBIT, OTHER\n"
-        "- txn_ref: The transaction reference number if present, otherwise empty string\n\n"
-        "Output ONLY the structured JSON. Do NOT hallucinate amounts. Extract the EXACT numbers from the email."
+        "- txn_ref: The transaction reference number if present, otherwise empty string\n"
+        "- payee_raw: For UPI, the raw payee/payer line exactly as present; otherwise merchant\n"
+        "- payee_normalized: Lowercase simplified payee name without bank boilerplate\n"
+        "- upi_vpa: UPI ID/VPA if present (example: vendor@oksbi), otherwise empty string\n"
+        "- upi_handle: UPI handle/provider beginning with @ if present (example: @oksbi), otherwise empty string\n"
+        "- direction: OUTBOUND for debits, INBOUND for credits\n\n"
+        "Output ONLY the structured JSON. Do NOT hallucinate amounts, VPAs, or payees. Extract only text present in the email."
     )
     
     try:
@@ -216,10 +288,344 @@ def days_until_target():
     today = datetime.now(IST)
     return max((TARGET_DATE.date() - today.date()).days, 1)
 
+def normalize_payee(value: str) -> str:
+    value = (value or "").lower()
+    value = re.sub(r"\b(upi|payment|paid|to|from|ref|rrn|transaction|a/c|account|axis|bank)\b", " ", value)
+    value = re.sub(r"[^a-z0-9@._ -]+", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value[:120]
+
+def extract_upi_vpa(*values: str) -> str:
+    for value in values:
+        match = UPI_VPA_RE.search(value or "")
+        if match:
+            return match.group(0).lower()
+    return ""
+
+def upi_handle_from_vpa(upi_vpa: str) -> str:
+    if "@" not in (upi_vpa or ""):
+        return ""
+    return "@" + upi_vpa.split("@", 1)[1].lower()
+
+def transaction_identity_key(transaction: dict) -> str:
+    seed = "|".join([
+        str(transaction.get("timestamp", "")),
+        str(transaction.get("txn_ref", "")),
+        str(transaction.get("approved_amount", transaction.get("funds_added", ""))),
+        str(transaction.get("merchant_normalized", transaction.get("merchant", ""))),
+        str(transaction.get("action_taken", "")),
+        str(transaction.get("fallback_index", "")),
+    ])
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+
+def normalize_transaction_record(transaction: dict, index: int = 0) -> tuple[dict, bool]:
+    transaction = transaction or {}
+    changed = False
+    if not transaction.get("id"):
+        transaction["id"] = transaction_identity_key({**transaction, "fallback_index": index})
+        changed = True
+
+    merchant = transaction.get("merchant") or transaction.get("payee_raw") or ""
+    if not merchant and transaction.get("message"):
+        merchant = str(transaction.get("message", "")).split("—", 1)[0].strip()
+    upi_vpa = extract_upi_vpa(
+        transaction.get("upi_vpa", ""),
+        transaction.get("payee_raw", ""),
+        transaction.get("merchant", ""),
+        transaction.get("message", ""),
+    )
+    payee_raw = transaction.get("payee_raw") or merchant
+    merchant_normalized = transaction.get("merchant_normalized") or normalize_payee(payee_raw)
+
+    defaults = {
+        "merchant": merchant,
+        "payee_raw": payee_raw,
+        "payee_normalized": transaction.get("payee_normalized") or merchant_normalized,
+        "merchant_normalized": merchant_normalized,
+        "upi_vpa": upi_vpa,
+        "upi_handle": transaction.get("upi_handle") or upi_handle_from_vpa(upi_vpa),
+        "direction": transaction.get("direction") or ("INBOUND" if transaction.get("funds_added", 0) else "OUTBOUND"),
+        "category": transaction.get("category") or "Unknown",
+        "subcategory": transaction.get("subcategory") or "",
+        "classification_confidence": float(transaction.get("classification_confidence", 0.0) or 0.0),
+        "classification_source": transaction.get("classification_source") or "legacy",
+        "classification_reason": transaction.get("classification_reason") or "Legacy transaction; review if needed.",
+        "needs_review": bool(transaction.get("needs_review", transaction.get("category") in [None, "", "Unknown"])),
+    }
+    for key, value in defaults.items():
+        if transaction.get(key) != value:
+            transaction[key] = value
+            changed = True
+    return transaction, changed
+
+def validate_category(category: str) -> str:
+    category = (category or "").strip()
+    if category not in CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Unsupported category: {category}")
+    return category
+
+def sanitize_rule(rule: dict) -> dict | None:
+    pattern = normalize_payee(rule.get("pattern") or rule.get("payee") or "")
+    category = rule.get("category", "Unknown")
+    if not pattern or category not in CATEGORIES:
+        return None
+    now = datetime.now(IST).isoformat()
+    return {
+        "id": rule.get("id") or hashlib.sha256(pattern.encode("utf-8")).hexdigest()[:16],
+        "pattern": pattern,
+        "match_type": rule.get("match_type") or ("upi_vpa" if "@" in pattern else "payee"),
+        "category": category,
+        "subcategory": rule.get("subcategory", ""),
+        "confidence": float(rule.get("confidence", 0.98)),
+        "source": rule.get("source", "learned"),
+        "created_at": rule.get("created_at") or now,
+        "last_used_at": rule.get("last_used_at"),
+        "usage_count": int(rule.get("usage_count", 0) or 0),
+    }
+
+def normalize_merchant_rules(rules: list[dict]) -> list[dict]:
+    normalized = []
+    seen = set()
+    for rule in rules or []:
+        clean_rule = sanitize_rule(rule)
+        if clean_rule and clean_rule["pattern"] not in seen:
+            seen.add(clean_rule["pattern"])
+            normalized.append(clean_rule)
+    return normalized
+
+def get_transaction_amount(transaction: dict) -> int:
+    return int(transaction.get("approved_amount") or transaction.get("funds_added") or transaction.get("amount") or 0)
+
+def apply_learned_rule(transaction: dict, merchant_rules: list[dict]) -> dict | None:
+    candidates = {
+        normalize_payee(transaction.get("upi_vpa", "")),
+        normalize_payee(transaction.get("payee_normalized", "")),
+        normalize_payee(transaction.get("merchant_normalized", "")),
+    }
+    candidates.discard("")
+    for rule in merchant_rules:
+        if normalize_payee(rule.get("pattern", "")) in candidates:
+            return {
+                "category": rule["category"],
+                "subcategory": rule.get("subcategory", ""),
+                "classification_confidence": float(rule.get("confidence", 0.98)),
+                "classification_source": rule.get("source", "learned"),
+                "classification_reason": f"Matched learned rule: {rule['pattern']}",
+                "needs_review": False,
+                "_matched_rule_id": rule.get("id"),
+            }
+    return None
+
+def apply_keyword_rule(transaction: dict) -> dict | None:
+    haystack = " ".join([
+        transaction.get("merchant", ""),
+        transaction.get("payee_raw", ""),
+        transaction.get("payee_normalized", ""),
+        transaction.get("merchant_normalized", ""),
+        transaction.get("upi_vpa", ""),
+    ]).lower()
+    for category, subcategory, keywords in SYSTEM_MERCHANT_RULES:
+        if any(keyword in haystack for keyword in keywords):
+            return {
+                "category": category,
+                "subcategory": subcategory,
+                "classification_confidence": 0.86,
+                "classification_source": "system",
+                "classification_reason": "Matched known merchant keyword.",
+                "needs_review": False,
+            }
+    return None
+
+def apply_recurring_pattern(transaction: dict, transactions: list[dict]) -> dict | None:
+    payee = normalize_payee(transaction.get("merchant_normalized") or transaction.get("payee_normalized") or transaction.get("upi_vpa"))
+    amount = get_transaction_amount(transaction)
+    if not payee or amount <= 0:
+        return None
+    matches: dict[str, int] = {}
+    for existing in transactions or []:
+        if existing.get("id") == transaction.get("id"):
+            continue
+        existing_payee = normalize_payee(existing.get("merchant_normalized") or existing.get("payee_normalized") or existing.get("upi_vpa"))
+        existing_amount = get_transaction_amount(existing)
+        category = existing.get("category")
+        if existing_payee == payee and category and category != "Unknown" and abs(existing_amount - amount) <= max(5, amount * 0.03):
+            matches[category] = matches.get(category, 0) + 1
+    if not matches:
+        return None
+    category = max(matches, key=matches.get)
+    if matches[category] < 2:
+        return None
+    return {
+        "category": category,
+        "subcategory": "Recurring pattern",
+        "classification_confidence": 0.74,
+        "classification_source": "recurring",
+        "classification_reason": "Matched repeated payee and amount pattern.",
+        "needs_review": False,
+    }
+
+class TransactionClassification(BaseModel):
+    category: str
+    subcategory: str = ""
+    confidence: float
+    reason: str
+
+def classify_with_llm(transaction: dict) -> dict | None:
+    if client is None:
+        return None
+    sanitized_payload = {
+        "type": transaction.get("direction"),
+        "channel": transaction.get("channel"),
+        "amount": get_transaction_amount(transaction),
+        "merchant": transaction.get("merchant"),
+        "payee_raw": transaction.get("payee_raw"),
+        "payee_normalized": transaction.get("payee_normalized"),
+        "upi_vpa": transaction.get("upi_vpa"),
+        "upi_handle": transaction.get("upi_handle"),
+    }
+    system_prompt = (
+        "Classify this Indian payment transaction. Use only the provided structured fields. "
+        "Do not infer from location, calendar, screenshots, or any unavailable context. "
+        f"Category must be one of: {', '.join(sorted(CATEGORIES))}. "
+        "For generic person-to-person UPI or ambiguous QR payments, choose Unknown or Transfer; never force Food/Shopping."
+    )
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=json.dumps(sanitized_payload),
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                response_mime_type="application/json",
+                response_schema=TransactionClassification,
+            ),
+        )
+        parsed = json.loads(response.text.strip())
+        category = parsed.get("category", "Unknown")
+        confidence = float(parsed.get("confidence", 0.0) or 0.0)
+        if category not in CATEGORIES or confidence < 0.78:
+            return None
+        return {
+            "category": category,
+            "subcategory": parsed.get("subcategory", ""),
+            "classification_confidence": min(confidence, 0.89),
+            "classification_source": "llm",
+            "classification_reason": parsed.get("reason", "LLM classified sanitized structured fields."),
+            "needs_review": False,
+        }
+    except Exception as e:
+        logger.warning(f"LLM classification skipped: {e}")
+        return None
+
+def classify_transaction(transaction: dict, state: dict) -> dict:
+    transaction, _ = normalize_transaction_record(transaction)
+    txn_type = transaction.get("direction") or ("INBOUND" if transaction.get("funds_added", 0) else "OUTBOUND")
+    if transaction.get("action_taken") == "BANK_CREDIT" or txn_type == "INBOUND":
+        merchant_text = " ".join([transaction.get("merchant", ""), transaction.get("message", "")]).lower()
+        is_refund = any(word in merchant_text for word in ["refund", "reversal", "reversed", "cashback"])
+        return {
+            **transaction,
+            "category": "Refund" if is_refund else "Income",
+            "subcategory": "Refund" if is_refund else "Bank credit",
+            "classification_confidence": 0.82,
+            "classification_source": "system",
+            "classification_reason": "Credit transactions are excluded from spend categories.",
+            "needs_review": False,
+        }
+
+    for classifier in [
+        lambda tx: apply_learned_rule(tx, state.get("merchant_rules", [])),
+        apply_keyword_rule,
+        lambda tx: apply_recurring_pattern(tx, state.get("transactions", [])),
+        classify_with_llm,
+    ]:
+        result = classifier(transaction)
+        if result:
+            matched_rule_id = result.pop("_matched_rule_id", None)
+            if matched_rule_id:
+                bump_rule_usage(state, matched_rule_id)
+            return {**transaction, **result}
+
+    return {
+        **transaction,
+        "category": "Unknown",
+        "subcategory": "",
+        "classification_confidence": 0.0,
+        "classification_source": "review",
+        "classification_reason": "Ambiguous UPI/vendor data; waiting for your correction.",
+        "needs_review": True,
+    }
+
+def bump_rule_usage(state: dict, rule_id: str):
+    now = datetime.now(IST).isoformat()
+    for rule in state.get("merchant_rules", []):
+        if rule.get("id") == rule_id:
+            rule["usage_count"] = int(rule.get("usage_count", 0) or 0) + 1
+            rule["last_used_at"] = now
+            break
+
+def upsert_merchant_rule(state: dict, rule: dict):
+    now = datetime.now(IST).isoformat()
+    rules = state.setdefault("merchant_rules", [])
+    pattern = normalize_payee(rule.get("pattern", ""))
+    for existing in rules:
+        if normalize_payee(existing.get("pattern", "")) == pattern:
+            existing.update({
+                "category": rule["category"],
+                "subcategory": rule.get("subcategory", ""),
+                "confidence": rule.get("confidence", 0.98),
+                "source": rule.get("source", existing.get("source", "learned")),
+                "match_type": rule.get("match_type", existing.get("match_type", "payee")),
+                "last_used_at": now,
+                "usage_count": int(existing.get("usage_count", 0) or 0) + 1,
+            })
+            return existing
+    rule["last_used_at"] = now
+    rule["usage_count"] = int(rule.get("usage_count", 0) or 0) + 1
+    rules.append(rule)
+    return rule
+
+def transaction_matches_rule(transaction: dict, rule: dict) -> bool:
+    pattern = normalize_payee(rule.get("pattern", ""))
+    candidates = {
+        normalize_payee(transaction.get("upi_vpa", "")),
+        normalize_payee(transaction.get("payee_normalized", "")),
+        normalize_payee(transaction.get("merchant_normalized", "")),
+    }
+    candidates.discard("")
+    return bool(pattern and pattern in candidates)
+
+def reclassify_similar_transactions(state: dict, rule: dict, skip_id: str = "") -> int:
+    count = 0
+    for transaction in state.get("transactions", []):
+        if skip_id and transaction.get("id") == skip_id:
+            continue
+        if not transaction.get("needs_review"):
+            continue
+        if not transaction_matches_rule(transaction, rule):
+            continue
+        transaction["category"] = rule["category"]
+        transaction["subcategory"] = rule.get("subcategory", "")
+        transaction["classification_confidence"] = float(rule.get("confidence", 0.98))
+        transaction["classification_source"] = rule.get("source", "learned")
+        transaction["classification_reason"] = f"Reclassified from learned rule: {rule['pattern']}"
+        transaction["needs_review"] = False
+        count += 1
+    return count
+
 def normalize_state(state):
     state = state or {}
     current_balance = int(state.get("current_balance", DEFAULT_BALANCE))
     transactions = state.get("transactions") or []
+    normalized_transactions = []
+    state_changed = False
+    for index, transaction in enumerate(transactions):
+        normalized_transaction, changed = normalize_transaction_record(transaction, index)
+        normalized_transactions.append(normalized_transaction)
+        state_changed = state_changed or changed
+    transactions = normalized_transactions
+    merchant_rules = normalize_merchant_rules(state.get("merchant_rules") or [])
+    if merchant_rules != (state.get("merchant_rules") or []):
+        state_changed = True
     owed_by = state.get("owed_by") or {}
     owed_by = {
         str(name).strip().title(): int(amount)
@@ -234,8 +640,6 @@ def normalize_state(state):
         "stamp_duty_paid": False,
         "last_accrual_date": datetime.now(IST).date().isoformat()
     })
-    
-    state_changed = False
     
     # 1. Apply Stamp Duty exactly once (0.005%)
     if not liquid_state.get("stamp_duty_paid", False):
@@ -286,6 +690,7 @@ def normalize_state(state):
     normalized = {
         "current_balance": current_balance,
         "transactions": transactions,
+        "merchant_rules": merchant_rules,
         "owed_by": owed_by,
         "liquid_assets": liquid_state,
         "liquid_metrics": {
@@ -332,16 +737,162 @@ class AgentDecision(BaseModel):
     new_target_balance: int
     person_name: str
 
+class AuthSessionRequest(BaseModel):
+    token: str
+
+class ClassificationCorrection(BaseModel):
+    category: str
+    subcategory: str = ""
+    always_apply: bool = True
+
+class MerchantRuleRequest(BaseModel):
+    pattern: str
+    category: str
+    subcategory: str = ""
+    match_type: str = "payee"
+
+@app.get("/public-profile")
+async def public_profile():
+    return {
+        "title": "AgentCFO",
+        "tagline": "A private AI finance cockpit that turns messy bank alerts into decisions, runway, and action.",
+        "privacy_note": "Live balances, transactions, debts, bank sync status, and personal audit logs are private.",
+        "public_activity": [
+            {
+                "label": "Ground-truth ingestion",
+                "detail": "Built a Gmail-to-Firestore pipeline for bank transaction capture with OTP redaction before model parsing.",
+            },
+            {
+                "label": "Decision engine",
+                "detail": "Connected Gemini to classify money intents, lending, collections, and spend approvals from natural language.",
+            },
+            {
+                "label": "Runway dashboard",
+                "detail": "Built a FastAPI and vanilla JS cockpit for cash runway, debts, liquid reserves, and bank-sync telemetry.",
+            },
+            {
+                "label": "Next build",
+                "detail": "Moving from raw audit feed to categorized spending, rewards inventory, obligations, and proactive CFO recommendations.",
+            },
+        ],
+        "stack": ["FastAPI", "Firestore", "Gmail API", "Pub/Sub", "Gemini", "Cloud Run", "Vanilla JS"],
+    }
+
+@app.post("/auth/session")
+async def auth_session(auth_request: AuthSessionRequest, response: Response):
+    if CFO_AUTH_DISABLED:
+        response.set_cookie(
+            "cfo_access_token",
+            auth_request.token,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=60 * 60 * 24 * 30,
+        )
+        return {"status": "success"}
+    if not CFO_ACCESS_TOKEN:
+        raise HTTPException(status_code=503, detail="Private CFO access is not configured.")
+    supplied_token = (auth_request.token or "").strip()
+    if not supplied_token or not hmac.compare_digest(supplied_token, CFO_ACCESS_TOKEN):
+        raise HTTPException(status_code=401, detail="Invalid private access token.")
+    response.set_cookie(
+        "cfo_access_token",
+        supplied_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,
+    )
+    return {"status": "success"}
+
 @app.get("/cfo-state")
-async def cfo_state():
+async def cfo_state(request: Request):
+    require_private_access(request)
     return get_state()
+
+@app.get("/transactions/review")
+async def transactions_review(request: Request):
+    require_private_access(request)
+    state = get_state()
+    transactions = [
+        tx for tx in state.get("transactions", [])
+        if tx.get("needs_review") and tx.get("action_taken") == "BANK_DEBIT"
+    ]
+    return {"transactions": transactions}
+
+@app.get("/merchant-rules")
+async def merchant_rules(request: Request):
+    require_private_access(request)
+    state = get_state()
+    return {"merchant_rules": state.get("merchant_rules", [])}
+
+@app.post("/merchant-rules")
+async def create_merchant_rule(rule_request: MerchantRuleRequest, request: Request):
+    require_private_access(request)
+    category = validate_category(rule_request.category)
+    state = get_state()
+    rule = sanitize_rule({
+        "pattern": rule_request.pattern,
+        "match_type": rule_request.match_type,
+        "category": category,
+        "subcategory": rule_request.subcategory,
+        "source": "manual",
+        "confidence": 0.98,
+    })
+    if not rule:
+        raise HTTPException(status_code=400, detail="Rule needs a valid pattern and category.")
+    upsert_merchant_rule(state, rule)
+    reclassified = reclassify_similar_transactions(state, rule)
+    save_state(state)
+    return {"status": "success", "merchant_rule": rule, "reclassified": reclassified}
+
+@app.post("/transactions/{transaction_id}/classify")
+async def classify_existing_transaction(transaction_id: str, correction: ClassificationCorrection, request: Request):
+    require_private_access(request)
+    category = validate_category(correction.category)
+    state = get_state()
+    transactions = state.get("transactions", [])
+    target = None
+    for tx in transactions:
+        if tx.get("id") == transaction_id:
+            target = tx
+            break
+    if not target:
+        raise HTTPException(status_code=404, detail="Transaction not found.")
+
+    target["category"] = category
+    target["subcategory"] = correction.subcategory
+    target["classification_confidence"] = 1.0
+    target["classification_source"] = "manual"
+    target["classification_reason"] = "Corrected in private review workflow."
+    target["needs_review"] = False
+
+    rule = None
+    reclassified = 0
+    if correction.always_apply:
+        pattern = target.get("upi_vpa") or target.get("payee_normalized") or target.get("merchant_normalized") or target.get("merchant")
+        rule = sanitize_rule({
+            "pattern": pattern,
+            "match_type": "upi_vpa" if target.get("upi_vpa") else "payee",
+            "category": category,
+            "subcategory": correction.subcategory,
+            "source": "learned",
+            "confidence": 0.98,
+        })
+        if rule:
+            upsert_merchant_rule(state, rule)
+            reclassified = reclassify_similar_transactions(state, rule, skip_id=transaction_id)
+
+    save_state(state)
+    return {"status": "success", "transaction": target, "merchant_rule": rule, "reclassified": reclassified}
 
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok", "service": "personal-cfo"}
 
 @app.post("/cfo-reset")
-async def cfo_reset():
+async def cfo_reset(request: Request):
+    require_private_access(request)
     state = get_state()
     new_state = {"current_balance": DEFAULT_BALANCE, "transactions": [], "owed_by": {}}
     if "liquid_assets" in state:
@@ -353,7 +904,8 @@ class BillingAlert(BaseModel):
     daily_burn_usd: float
 
 @app.post("/gcp-billing-webhook")
-async def gcp_billing_webhook(alert: BillingAlert):
+async def gcp_billing_webhook(alert: BillingAlert, request: Request):
+    require_private_access(request)
     state = get_state()
     billing = state.get("gcp_billing", {})
     billing["vertex_daily_burn_usd"] = alert.daily_burn_usd
@@ -362,8 +914,9 @@ async def gcp_billing_webhook(alert: BillingAlert):
     return {"status": "success", "new_burn": alert.daily_burn_usd}
 
 @app.post("/cfo-check")
-async def cfo_check(request: ExpenseRequest):
-    prompt_text = request.prompt_text()
+async def cfo_check(expense_request: ExpenseRequest, request: Request):
+    require_private_access(request)
+    prompt_text = expense_request.prompt_text()
     if not prompt_text:
         raise HTTPException(status_code=400, detail="Send JSON with expense_text, text, input, or query.")
     if client is None:
@@ -676,7 +1229,7 @@ async def gmail_webhook(request: Request):
                 
                 if txn_data:
                     # Reconcile the balance
-                    _reconcile_balance(txn_data, subject)
+                    _reconcile_balance(txn_data, subject, safe_body_text)
                     processed_count += 1
                     # LOG ONLY SANITIZED DATA (Layer 4: Log Hygiene)
                     logger.info(f"Bank sync: {txn_data.get('type')} ₹{txn_data.get('amount')} via {txn_data.get('channel')} — {txn_data.get('merchant')}")
@@ -730,10 +1283,27 @@ def _extract_email_body(payload: dict) -> str:
     return ""
 
 
-def _reconcile_balance(txn_data: dict, subject: str):
+def enrich_transaction_identity(txn_data: dict, source_text: str = "") -> dict:
+    merchant = txn_data.get("merchant", "") or txn_data.get("payee_raw", "")
+    payee_raw = txn_data.get("payee_raw") or merchant
+    upi_vpa = (txn_data.get("upi_vpa") or extract_upi_vpa(source_text, merchant, payee_raw)).lower()
+    payee_normalized = txn_data.get("payee_normalized") or normalize_payee(payee_raw or merchant or upi_vpa)
+    return {
+        **txn_data,
+        "merchant": merchant or payee_raw or upi_vpa or "Unknown",
+        "payee_raw": payee_raw or merchant or upi_vpa or "Unknown",
+        "payee_normalized": payee_normalized,
+        "merchant_normalized": normalize_payee(merchant or payee_raw or upi_vpa),
+        "upi_vpa": upi_vpa,
+        "upi_handle": txn_data.get("upi_handle") or upi_handle_from_vpa(upi_vpa),
+        "direction": txn_data.get("direction") or ("INBOUND" if txn_data.get("type") == "CREDIT" else "OUTBOUND"),
+    }
+
+def _reconcile_balance(txn_data: dict, subject: str, source_text: str = ""):
     """Apply a parsed bank transaction to the Firestore state."""
     state = get_state()
     current_balance = state.get("current_balance", DEFAULT_BALANCE)
+    txn_data = enrich_transaction_identity(txn_data, source_text)
     amount = int(txn_data.get("amount", 0))
     txn_type = txn_data.get("type", "DEBIT")
     
@@ -760,15 +1330,26 @@ def _reconcile_balance(txn_data: dict, subject: str):
         "remaining_balance": new_balance,
         "owed_by_snapshot": dict(state.get("owed_by", {})),
         "source": "GMAIL_SYNC",
-        "channel": txn_data.get("channel", "UNKNOWN")
+        "channel": txn_data.get("channel", "UNKNOWN"),
+        "merchant": txn_data.get("merchant", "Unknown"),
+        "merchant_normalized": txn_data.get("merchant_normalized", ""),
+        "payee_raw": txn_data.get("payee_raw", ""),
+        "payee_normalized": txn_data.get("payee_normalized", ""),
+        "upi_vpa": txn_data.get("upi_vpa", ""),
+        "upi_handle": txn_data.get("upi_handle", ""),
+        "direction": txn_data.get("direction", "OUTBOUND"),
+        "txn_ref": txn_data.get("txn_ref", ""),
     }
+    transaction["id"] = transaction_identity_key(transaction)
+    transaction = classify_transaction(transaction, state)
     state["transactions"].insert(0, transaction)
     
     save_state(state)
 
 
 @app.post("/gmail-watch")
-async def gmail_watch():
+async def gmail_watch(request: Request):
+    require_private_access(request)
     """Register or renew Gmail push notifications.
     Called by Cloud Scheduler every 3 days to keep the watch alive."""
     try:
@@ -802,7 +1383,8 @@ async def gmail_watch():
 
 
 @app.get("/gmail-status")
-async def gmail_status():
+async def gmail_status(request: Request):
+    require_private_access(request)
     """Return current Gmail sync status for debugging and the frontend."""
     sync_state = get_gmail_sync_state()
     return {
@@ -816,7 +1398,8 @@ async def gmail_status():
 
 
 @app.post("/gmail-set-label")
-async def gmail_set_label(label_id: str):
+async def gmail_set_label(label_id: str, request: Request):
+    require_private_access(request)
     """Set the Gmail label ID used for filtering. Call once after creating the label."""
     sync_state = get_gmail_sync_state()
     sync_state["label_id"] = label_id
