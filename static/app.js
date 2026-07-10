@@ -54,6 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ];
 
     let currentBalance = DEFAULT_BALANCE;
+    let daysLeftFromServer = null;
     let transactions = [];
     let owedByState = {};
     let merchantRules = [];
@@ -180,7 +181,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const renderStats = () => {
-        const daysLeft = getDaysRemaining();
+        const daysLeft = daysLeftFromServer ?? getDaysRemaining();
         daysLeftTextEl.textContent = `${daysLeft} Days Left`;
         dailyBudgetEl.textContent = `₹${formatCurrency(Math.max(Math.round(currentBalance / daysLeft), 0))}/day`;
         totalBurnsCountEl.textContent = transactions.filter((t) => t.action_taken === "REJECT_INTENT").length;
@@ -342,6 +343,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const state = await res.json();
             const prevBalance = currentBalance;
             currentBalance = state.current_balance;
+            daysLeftFromServer = Number.isFinite(state.days_left) ? state.days_left : null;
             transactions = state.transactions || [];
             owedByState = state.owed_by || {};
             merchantRules = state.merchant_rules || [];

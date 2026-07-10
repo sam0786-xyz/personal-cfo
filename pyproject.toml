@@ -1,7 +1,7 @@
 [project]
 name = "personal-cfo"
 version = "0.1.0"
-description = "Add your description here"
+description = "AgentCFO — an autonomous personal finance agent with Gmail bank reconciliation"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -16,3 +16,28 @@ dependencies = [
     "google-cloud-secret-manager>=2.0.0",
     "beautifulsoup4>=4.0.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.8",
+    "httpx>=0.28",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 140
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B904", "B008", "E402"]
+
+[tool.ruff.lint.per-file-ignores]
+# Long lines here are LLM prompt text and keyword-rule data tables.
+"app/agent.py" = ["E501"]
+"app/classification.py" = ["E501"]
+"app/routes/public.py" = ["E501"]

@@ -12,3 +12,8 @@ wheels/
 
 client_secret.json
 scripts/client_secret*.json
+
+# Local state / tooling caches
+balance_state.json
+.pytest_cache/
+.ruff_cache/
