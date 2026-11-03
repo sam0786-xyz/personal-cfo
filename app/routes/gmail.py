@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 
 from app import config, gmail_pipeline, security, state
 from app.config import IST
@@ -35,7 +36,7 @@ async def gmail_webhook(request: Request):
         if not history_id:
             return {"status": "ignored", "reason": "no historyId"}
 
-        return gmail_pipeline.process_history_update(history_id)
+        return await run_in_threadpool(gmail_pipeline.process_history_update, history_id)
 
     except Exception as e:
         logger.error(f"Gmail webhook error: {e}")
